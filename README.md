@@ -300,6 +300,39 @@ endif
 
 ---
 
+
+## Benchmarks
+
+| Benchmark              | Workload                                                                                                                  |        Time |
+| :--------------------- | :------------------------------------------------------------------------------------------------------------------------ | ----------: |
+| Stress Test Suite      | Arithmetic, Matrix Ops, Matrix Multiply, Statistics, FFT, Polynomial, Sets, Cells, Structs, Functions, Recursion, Strings | **1.508 s** |
+| Matrix Multiplication  | 10 × (500×500 × 500×500) matrix multiplications                                                                           | **6.254 s** |
+| Large Numerical Stress | 1,000,000 `sin()` evaluations + 1000×1000 matrix operations + FFT(4096) + Statistics + User Functions                     | **5.437 s** |
+
+## CLI
+
+| Command                    | Description                                 |
+| :------------------------- | :------------------------------------------ |
+| `matbox repl`              | Start interactive REPL                      |
+| `matbox run <file.mbox>`   | Execute a MATBOX script                     |
+| `matbox check <file.mbox>` | Check syntax without execution              |
+| `matbox lsp`               | Start Language Server Protocol (LSP) server |
+| `matbox version`           | Print version information                   |
+
+
+
+## Benchmark Environment
+
+| Property | Value         |
+| :------- | :------------ |
+| Version  | MATBOX v0.1.0 |
+| Language | Rust          |
+| Build    | Release       |
+| Platform | Linux         |
+| CPU      | *AMD Ryzen 7 7700*  |
+| RAM      | *32GB DDR5*  |
+
+
 ## Development
 
 ### Running tests
@@ -397,4 +430,4 @@ The source code is licensed under AGPL-3.0, but the MATBOX name and logo may not
 
 ## License
 
-AGPLv3
+### AGPLv3
