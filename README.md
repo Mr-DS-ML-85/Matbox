@@ -10,7 +10,7 @@
  |_|  |_|\__,_|_|____(_)_|\_\
 ```
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPLv3%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 [![Version](https://img.shields.io/badge/version-0.1.0-blueviolet.svg)](https://crates.io/crates/matbox)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/anomalyco/matbox/actions)
@@ -379,7 +379,7 @@ Bug reports, feature requests, pull requests, and community contributions are we
 
 # MATBOX Trademark Policy
 
-The name **MATBOX**, the MATBOX logo, and the project's branding are the intellectual property of the MATBOX project owner.
+The name **MATBOX™**, the MATBOX logo, and the project's branding are the intellectual property of the MATBOX project owner.
 
 You are welcome to use, modify, and redistribute the MATBOX source code under the terms of the project's software license.
 
