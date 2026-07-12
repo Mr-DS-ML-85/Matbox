@@ -325,6 +325,75 @@ and implementation, then add tests in `crates/matbox-core/src/eval.rs`.
 
 ---
 
+# Disclaimer
+
+MATBOX is an independent, open-source project developed to provide a MATLAB-compatible programming language and runtime. It is currently under active development and should be considered **experimental software**.
+
+## Project Status
+
+MATBOX is **not feature-complete**. While many language features and built-in functions are implemented, others are still under development.
+
+Users may encounter:
+
+* Bugs or unexpected behavior
+* Incomplete or missing language features
+* Compatibility differences with MATLAB
+* Performance limitations in some workloads
+* Breaking changes between releases
+
+Please verify important computational results before relying on MATBOX for research, engineering, academic, or production work.
+
+## Compatibility
+
+MATBOX aims to provide compatibility with MATLAB `.m` scripts wherever practical. However, compatibility is an ongoing effort, and not all MATLAB language features or built-in functions are currently supported.
+
+Compatibility with MATLAB does **not** imply that MATBOX contains, copies, or redistributes any proprietary MATLAB code.
+
+## Clean-Room Implementation
+
+MATBOX is a **clean-room implementation** developed independently. It is not based on copied, decompiled, reverse-engineered, or otherwise derived proprietary MATLAB source code.
+
+The project is implemented from original code using publicly available language behavior and documentation.
+
+## Copyright & Trademarks
+
+MATBOX is an independent project and is **not affiliated with, endorsed by, sponsored by, or associated with MathWorks**.
+
+**MATLAB®** is a registered trademark of MathWorks. All other trademarks, product names, and company names mentioned in this project belong to their respective owners.
+
+Copyright © 2026 Irfan. All rights reserved unless otherwise specified by the project's license.
+
+## Open Source
+
+MATBOX is distributed under the license included in this repository. Please read the LICENSE file for your rights and obligations regarding use, modification, and redistribution.
+
+## No Warranty
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Feedback
+
+Bug reports, feature requests, pull requests, and community contributions are welcome and greatly appreciated. MATBOX is an evolving project, and community feedback helps improve its quality and compatibility.
+
+# MATBOX Trademark Policy
+
+The name **MATBOX**, the MATBOX logo, and the project's branding are the intellectual property of the MATBOX project owner.
+
+You are welcome to use, modify, and redistribute the MATBOX source code under the terms of the project's software license.
+
+However, you **may not**:
+
+* Redistribute a modified version under the name **MATBOX**.
+* Use the **MATBOX** name or logo in a way that suggests official endorsement.
+* Market or sell a fork as the official MATBOX project.
+
+If you create a modified or forked version, you must use a different project name and clearly indicate that it is an unofficial fork.
+
+This policy is intended to protect users from confusion and preserve the identity of the official MATBOX project.
+
+
 ## License
 
-Apache 2.0
+AGPLv3
