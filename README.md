@@ -60,8 +60,8 @@ operation is vectorized, and every function matches MATLAB semantics.
 ### Installation
 
 ```bash
-git clone https://github.com/your-org/matbox
-cd matbox
+git clone https://github.com/Mr-DS-ML-85/Matbox
+cd Matbox
 cargo build --release
 ```
 

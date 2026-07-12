@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documentation — MATBOX</title>
+  <meta name="description" content="Full MATBOX documentation: language reference, .mbox language specification, built-in functions, LSP setup, development guide, and benchmarks." />
+  <meta name="theme-color" content="#07090c" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <link rel="stylesheet" href="assets/css/docs.css" />
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='24' rx='3' fill='none' stroke='%235af78e' stroke-width='2'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='monospace' font-weight='700' font-size='13' fill='%235af78e'%3EMX%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+
+  <!-- ============== NAV ============== -->
+  <nav class="nav">
+    <a href="index.html" class="nav-brand nav-brand-link">
+      <span class="logo">MX</span>
+      <span>MATBOX</span>
+    </a>
+    <div class="nav-links">
+      <a href="index.html#features">features</a>
+      <a href="index.html#architecture">crates</a>
+      <a href="index.html#builtins">builtins</a>
+      <a href="docs.html">docs</a>
+      <a href="https://github.com/Mr-DS-ML-85/Matbox" target="_blank" rel="noopener">github ↗</a>
+      <a href="#getting-started" class="nav-cta">get started</a>
+    </div>
+  </nav>
+
+  <!-- ============== DOCS SHELL ============== -->
+  <div class="docs-shell">
+
+    <!-- SIDEBAR -->
+    <aside class="docs-sidebar">
+      <div class="sidebar-section">
+        <h4>introduction</h4>
+        <ul>
+          <li><a href="#getting-started">Getting started</a></li>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#cli">CLI</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h4>language</h4>
+        <ul>
+          <li><a href="#language-features">Features at a glance</a></li>
+          <li><a href="#hello-world">Hello world</a></li>
+          <li><a href="#matrix-ops">Matrix operations</a></li>
+          <li><a href="#functions">Functions</a></li>
+          <li><a href="#closures">Anonymous &amp; closures</a></li>
+          <li><a href="#structs">Structs</a></li>
+          <li><a href="#cell-arrays">Cell arrays</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h4>specification</h4>
+        <ul>
+          <li><a href="#spec-intro">Introduction</a></li>
+          <li><a href="#spec-lexical">1. Lexical structure</a></li>
+          <li><a href="#spec-types">2. Types</a></li>
+          <li><a href="#spec-expressions">3. Expressions</a></li>
+          <li><a href="#spec-statements">4. Statements</a></li>
+          <li><a href="#spec-scripts">5. Scripts</a></li>
+          <li><a href="#spec-builtins">6. Built-in functions</a></li>
+          <li><a href="#spec-constants">7. Constants</a></li>
+          <li><a href="#spec-extensions">8. MATBOX extensions</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h4>tools</h4>
+        <ul>
+          <li><a href="#lsp">Language server</a></li>
+          <li><a href="#editor-setup">Editor setup</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h4>development</h4>
+        <ul>
+          <li><a href="#dev-running-tests">Running tests</a></li>
+          <li><a href="#dev-style">Code style</a></li>
+          <li><a href="#dev-adding-builtin">Adding a builtin</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h4>reference</h4>
+        <ul>
+          <li><a href="#benchmarks">Benchmarks</a></li>
+          <li><a href="#status">Project status</a></li>
+          <li><a href="#legal">Legal &amp; trademark</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="docs-main">
+
+      <!-- Search bar (sticky) -->
+      <div class="docs-search-wrap">
+        <div class="docs-search">
+          <span class="icon">⌕</span>
+          <input
+            id="docs-search-input"
+            type="text"
+            placeholder="Search the docs — try 'eig', 'persistent', 'cell array'…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <span class="kbd"><kbd>/</kbd> to focus</span>
+          <div id="search-results" class="search-results"></div>
+        </div>
+        <div class="docs-search-meta">
+          <span>Showing <span class="count" id="search-count">0 sections indexed</span></span>
+          <button class="clear" id="search-clear">clear ✕</button>
+        </div>
+        <div class="no-results-banner" id="no-results-banner"></div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- GETTING STARTED -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="getting-started">
+        <h2>Getting started</h2>
+        <p>MATBOX is a single Rust workspace with seven crates. The fastest way to try it is to clone, build, and drop into the REPL.</p>
+
+        <h3>Installation</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">terminal</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-fn">git</span> clone https://github.com/Mr-DS-ML-85/Matbox
+<span class="tok-fn">cd</span> Matbox
+<span class="tok-fn">cargo</span> build --release</code></pre>
+        </div>
+
+        <h3>Start the REPL</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">terminal</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-fn">cargo</span> run --release
+
+<span class="tok-com"># inside the REPL</span>
+&gt;&gt; x = [<span class="tok-num">1 2 3</span>; <span class="tok-num">4 5 6</span>]
+&gt;&gt; <span class="tok-fn">sin</span>(x)
+&gt;&gt; <span class="tok-fn">disp</span>(<span class="tok-str">'Hello, MATBOX!'</span>)
+&gt;&gt; <span class="tok-fn">exit</span></code></pre>
+        </div>
+
+        <h3>Run a script</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">terminal</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-fn">cargo</span> run --release -- run examples/demo.mbox</code></pre>
+        </div>
+
+        <h3>Check syntax only</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">terminal</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-fn">cargo</span> run --release -- check myscript.mbox</code></pre>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- OVERVIEW -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="overview">
+        <h2>Overview</h2>
+        <p>MATBOX is a fully independent, ground-up reimplementation of the MATLAB language and runtime. The <strong>compute engine is 100% Rust</strong> — no Python, no C++, no C. Every number is a complex-valued N-dimensional array, every operation is vectorized, and every function matches MATLAB semantics.</p>
+        <p>The language is a superset of MATLAB: every <code>.m</code> file should parse, and MATBOX adds its own extensions (<code>endfunction</code>, <code>#</code> comments, <code>**</code> power, double-quoted strings, <code>varargin</code> / <code>varargout</code>, and more).</p>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- ARCHITECTURE -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="architecture">
+        <h2>Architecture</h2>
+        <p>MATBOX is structured as a Cargo workspace with seven focused crates. You can embed just the core, or use the whole stack.</p>
+
+        <div class="arch">
+          <div class="row">
+            <span class="tag">matbox-cli</span>
+            <span class="desc">REPL and script runner — the <code>matbox</code> binary you call from the terminal.</span>
+          </div>
+          <div class="row">
+            <span class="tag">matbox-lsp</span>
+            <span class="desc">Language Server Protocol server. Completions, hover, diagnostics for <code>.mbox</code>.</span>
+          </div>
+          <div class="row">
+            <span class="tag">matbox-core</span>
+            <span class="desc">Lexer, parser, AST, interpreter, 180+ builtins. The brain. (325+ tests)</span>
+          </div>
+          <div class="row">
+            <span class="tag">matbox-math</span>
+            <span class="desc">Column-major <code>MxArray</code>, LAPACK-free linalg — QR, SVD, LU, Cholesky, eig.</span>
+          </div>
+          <div class="row">
+            <span class="tag">matbox-graphics</span>
+            <span class="desc">WebGL/Canvas plotting backend. <code>plot</code>, <code>surf</code>, <code>mesh</code> in the browser.</span>
+          </div>
+          <div class="row">
+            <span class="tag">matbox-sim</span>
+            <span class="desc">Simulink-like block-diagram solver for dynamic systems.</span>
+          </div>
+          <div class="row">
+            <span class="tag">matbox-ffi</span>
+            <span class="desc">C FFI for embedding — single-header <code>matbox.h</code>, call MATBOX from anywhere.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- CLI -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="cli">
+        <h2>CLI</h2>
+        <p>After <code>cargo build --release</code>, the <code>matbox</code> binary is in <code>target/release/</code>. It accepts four subcommands:</p>
+        <table>
+          <thead>
+            <tr><th>Command</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>matbox repl</code></td><td>Start the interactive REPL</td></tr>
+            <tr><td><code>matbox run &lt;file.mbox&gt;</code></td><td>Execute a MATBOX script</td></tr>
+            <tr><td><code>matbox check &lt;file.mbox&gt;</code></td><td>Check syntax without execution</td></tr>
+            <tr><td><code>matbox lsp</code></td><td>Start the Language Server Protocol server</td></tr>
+            <tr><td><code>matbox version</code></td><td>Print version information</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- LANGUAGE FEATURES -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="language-features">
+        <h2>Language features at a glance</h2>
+        <p>Every feature below is implemented and tested. See the <a href="#spec-intro">full specification</a> for grammar and semantics.</p>
+        <table>
+          <thead><tr><th>Feature</th><th>Syntax</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Matrix arithmetic</td><td><code>+ - * / \\ ^ .* ./ .^ .\\</code></td><td>✅</td></tr>
+            <tr><td>Conjugate transpose</td><td><code>A'</code></td><td>✅</td></tr>
+            <tr><td>Non-conjugate transpose</td><td><code>A.'</code></td><td>✅</td></tr>
+            <tr><td>Broadcasting</td><td><code>scalar + matrix</code>, <code>row + col</code></td><td>✅</td></tr>
+            <tr><td>Colon ranges</td><td><code>1:10</code>, <code>1:2:10</code>, <code>end-1:end</code></td><td>✅</td></tr>
+            <tr><td>Relational</td><td><code>== ~= &lt; &lt;= &gt; &gt;=</code></td><td>✅</td></tr>
+            <tr><td>Logical</td><td><code>&amp; | ~ &amp;&amp; ||</code></td><td>✅</td></tr>
+            <tr><td>Control flow</td><td><code>if/elseif/else/end</code></td><td>✅</td></tr>
+            <tr><td>Loops</td><td><code>for/end</code>, <code>while/end</code>, <code>break</code>, <code>continue</code></td><td>✅</td></tr>
+            <tr><td>Switch</td><td><code>switch/case/otherwise/end</code> + cell patterns <code>case {1,2,3}</code></td><td>✅</td></tr>
+            <tr><td>Try/catch</td><td><code>try/catch/end</code></td><td>✅</td></tr>
+            <tr><td>Functions</td><td><code>function [a,b] = name(x,y)/end</code></td><td>✅</td></tr>
+            <tr><td><code>endfunction</code></td><td>MATBOX extension for function terminators</td><td>✅</td></tr>
+            <tr><td><code>varargin</code> / <code>varargout</code></td><td>Variable-length argument lists</td><td>✅</td></tr>
+            <tr><td><code>persistent</code></td><td>Persistent variables inside functions</td><td>✅</td></tr>
+            <tr><td><code>global</code></td><td>Global variable sharing</td><td>✅</td></tr>
+            <tr><td><code>parfor</code></td><td>Parallel for loop (sequential fallback)</td><td>✅</td></tr>
+            <tr><td>Anonymous functions</td><td><code>@(x) x^2</code></td><td>✅</td></tr>
+            <tr><td>Closures</td><td><code>@(x) @(y) x+y</code> (free variable capture)</td><td>✅</td></tr>
+            <tr><td>Function handles</td><td><code>@sin</code>, <code>@cos</code>, <code>f = @(x) x^2; f(3)</code></td><td>✅</td></tr>
+            <tr><td>Structs</td><td><code>s.field</code>, <code>s.('dynamic')</code>, <code>struct()</code></td><td>✅</td></tr>
+            <tr><td>Cell arrays</td><td><code>{1, 'hello', @sin}</code>, brace indexing <code>C{1}</code></td><td>✅</td></tr>
+            <tr><td>Multi-output</td><td><code>[a, b] = func(x)</code></td><td>✅</td></tr>
+            <tr><td>Double-quoted strings</td><td><code>"hello"</code> (MATBOX extension)</td><td>✅</td></tr>
+            <tr><td><code>#</code> comments</td><td>MATBOX extension</td><td>✅</td></tr>
+            <tr><td><code>**</code> power operator</td><td><code>2 ** 3</code> (MATBOX extension)</td><td>✅</td></tr>
+            <tr><td><code>%{...%}</code> block comments</td><td>Multi-line comment blocks</td><td>✅</td></tr>
+            <tr><td>Line continuation</td><td><code>A = [1 2 3; ...</code></td><td>✅</td></tr>
+            <tr><td>LSP server</td><td>Completions, diagnostics, hover</td><td>✅</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- HELLO WORLD -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="hello-world">
+        <h2>Hello world</h2>
+        <p>The smallest possible MATBOX script:</p>
+        <div class="code-block">
+          <div class="head"><span class="file">hello.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-com">% hello.mbox</span>
+<span class="tok-fn">disp</span>(<span class="tok-str">'Hello, MATBOX!'</span>)</code></pre>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- MATRIX OPS -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="matrix-ops">
+        <h2>Matrix operations</h2>
+        <div class="code-block">
+          <div class="head"><span class="file">matrices.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">A</span> = [<span class="tok-num">1 2 3</span>; <span class="tok-num">4 5 6</span>]
+<span class="tok-var">B</span> = [<span class="tok-num">7 8 9</span>; <span class="tok-num">10 11 12</span>]
+<span class="tok-var">C</span> = <span class="tok-var">A</span> <span class="tok-op">*</span> <span class="tok-var">B</span>             <span class="tok-com">% matrix multiply</span>
+<span class="tok-var">D</span> = <span class="tok-var">A</span> <span class="tok-op">.*</span> <span class="tok-var">B</span>            <span class="tok-com">% element-wise multiply</span>
+<span class="tok-var">E</span> = <span class="tok-var">A</span><span class="tok-op">'</span>                <span class="tok-com">% conjugate transpose</span></code></pre>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- FUNCTIONS -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="functions">
+        <h2>Functions</h2>
+        <div class="code-block">
+          <div class="head"><span class="file">fib.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">function</span> <span class="tok-var">result</span> = <span class="tok-fn">fib</span>(<span class="tok-var">n</span>)
+    <span class="tok-kw">if</span> <span class="tok-var">n</span> <span class="tok-op">&lt;=</span> <span class="tok-num">1</span>
+        <span class="tok-var">result</span> = <span class="tok-var">n</span>
+    <span class="tok-kw">else</span>
+        <span class="tok-var">result</span> = <span class="tok-fn">fib</span>(<span class="tok-var">n</span><span class="tok-op">-</span><span class="tok-num">1</span>) <span class="tok-op">+</span> <span class="tok-fn">fib</span>(<span class="tok-var">n</span><span class="tok-op">-</span><span class="tok-num">2</span>)
+    <span class="tok-kw">end</span>
+<span class="tok-kw">end</span>
+
+<span class="tok-fn">disp</span>(<span class="tok-fn">fib</span>(<span class="tok-num">10</span>))</code></pre>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- CLOSURES -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="closures">
+        <h2>Anonymous functions &amp; closures</h2>
+        <div class="code-block">
+          <div class="head"><span class="file">closures.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">f</span> = <span class="tok-op">@</span>(<span class="tok-var">x</span>) <span class="tok-var">x</span><span class="tok-op">^</span><span class="tok-num">2</span>
+<span class="tok-fn">f</span>(<span class="tok-num">5</span>)              <span class="tok-com">% 25</span>
+
+<span class="tok-var">adder</span> = <span class="tok-op">@</span>(<span class="tok-var">x</span>) <span class="tok-op">@</span>(<span class="tok-var">y</span>) <span class="tok-var">x</span> <span class="tok-op">+</span> <span class="tok-var">y</span>
+<span class="tok-var">add5</span> = <span class="tok-fn">adder</span>(<span class="tok-num">5</span>)
+<span class="tok-fn">add5</span>(<span class="tok-num">3</span>)           <span class="tok-com">% 8 (closure captures x=5)</span></code></pre>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- STRUCTS -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="structs">
+        <h2>Structs</h2>
+        <div class="code-block">
+          <div class="head"><span class="file">structs.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">s</span> = <span class="tok-fn">struct</span>(<span class="tok-str">'name'</span>, <span class="tok-str">'MATBOX'</span>, <span class="tok-str">'version'</span>, <span class="tok-num">0.1</span>)
+<span class="tok-var">s</span><span class="tok-dot">.</span><span class="tok-var">description</span> = <span class="tok-str">'A MATLAB replica in Rust'</span>
+<span class="tok-fn">disp</span>(<span class="tok-var">s</span><span class="tok-dot">.</span><span class="tok-var">name</span>)
+<span class="tok-var">s</span><span class="tok-dot">.</span>(<span class="tok-str">'version'</span>)     <span class="tok-com">% dynamic field access</span></code></pre>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- CELL ARRAYS -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="cell-arrays">
+        <h2>Cell arrays</h2>
+        <div class="code-block">
+          <div class="head"><span class="file">cells.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">C</span> = {<span class="tok-num">1</span>, <span class="tok-str">'hello'</span>, <span class="tok-op">@</span><span class="tok-fn">sin</span>}
+<span class="tok-var">C</span>{<span class="tok-num">2</span>}              <span class="tok-com">% 'hello'</span>
+<span class="tok-var">C</span>{<span class="tok-num">3</span>}(<span class="tok-var">pi</span><span class="tok-op">/</span><span class="tok-num">2</span>)        <span class="tok-com">% 1.0</span>
+<span class="tok-fn">cellfun</span>(<span class="tok-op">@</span>(<span class="tok-var">x</span>) <span class="tok-var">x</span><span class="tok-op">^</span><span class="tok-num">2</span>, {<span class="tok-num">1</span>, <span class="tok-num">2</span>, <span class="tok-num">3</span>})</code></pre>
+        </div>
+      </section>
+
+      <!-- =============================================================
+           LANGUAGE SPECIFICATION (.mbox)
+           ============================================================== -->
+      <section class="doc-section" id="spec-intro">
+        <h2>Language specification (.mbox)</h2>
+        <p><strong>Version</strong>: 0.1.0<br />
+        <strong>File extension</strong>: <code>.mbox</code><br />
+        <strong>Paradigm</strong>: Multi-paradigm: imperative, procedural, functional, array-oriented<br />
+        <strong>Memory</strong>: Automatic (workspace-based)<br />
+        <strong>Typing</strong>: Dynamic, everything is an <code>MxArray</code> (complex-valued matrix)</p>
+        <p>MATBOX is a clean-room, from-scratch reimplementation of the MATLAB language. The <code>.mbox</code> format is a superset of <code>.m</code> — all <code>.m</code> files should parse, and MATBOX adds its own extensions (like <code>endfunction</code> and module imports).</p>
+      </section>
+
+      <section class="doc-section" id="spec-lexical">
+        <h2>1. Lexical structure</h2>
+
+        <h3>Comments</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-com">%  single-line comment  (preferred)</span>
+<span class="tok-com">#  single-line comment  (MATBOX extension)</span>
+
+<span class="tok-com">%{</span>
+<span class="tok-com">  multi-line comment</span>
+<span class="tok-com">%}</span></code></pre>
+        </div>
+
+        <h3>Identifiers</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">grammar</span><button data-copy>copy</button></div>
+<pre><code>letter   ::= [a-zA-Z_]
+ident    ::= letter (letter | digit)*</code></pre>
+        </div>
+        <p>Identifiers are case-sensitive. <code>foo</code>, <code>Foo</code>, and <code>FOO</code> are distinct.</p>
+
+        <h3>Keywords</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">keywords</span><button data-copy>copy</button></div>
+<pre><code>if, elseif, else, end, endfunction, for, while, break, continue,
+function, return, switch, case, otherwise, try, catch,
+parfor, persistent, global, true, false, pi, eps, inf, nan, i, j</code></pre>
+        </div>
+        <p><code>true</code>, <code>false</code>, <code>pi</code>, <code>eps</code>, <code>inf</code>, <code>nan</code>, <code>i</code>, <code>j</code> are <strong>reserved constants</strong> stored in the workspace. They can be shadowed by user assignment.</p>
+
+        <h3>Literals</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">grammar</span><button data-copy>copy</button></div>
+<pre><code>num     ::= digit+ ('.' digit+)? ([eE] [+-]? digit+)?
+imag    ::= num [ij]               <span class="tok-com">→ pure imaginary:  2i, 3.14j</span>
+str     ::= "'" {char} "'"         <span class="tok-com">→ single-quoted string</span>
+str     ::= '"' {char} '"'         <span class="tok-com">→ double-quoted string  (MATBOX extension)</span>
+
+numeric ::= 42, 3.14, 1e-10, 2i, 3.14j
+string  ::= 'hello', "world"</code></pre>
+        </div>
+
+        <h3>Operators</h3>
+        <table>
+          <thead><tr><th>Symbol</th><th>Precedence</th><th>Assoc</th><th>Name</th></tr></thead>
+          <tbody>
+            <tr><td><code>^</code> <code>**</code></td><td>120</td><td>right</td><td>matrix power</td></tr>
+            <tr><td><code>.^</code></td><td>120</td><td>right</td><td>element-wise power</td></tr>
+            <tr><td><code>'</code></td><td>110</td><td>left</td><td>conjugate transpose</td></tr>
+            <tr><td><code>.'</code></td><td>110</td><td>left</td><td>non-conjugate transpose</td></tr>
+            <tr><td><code>+</code> <code>-</code></td><td>100</td><td>left</td><td>unary plus/minus</td></tr>
+            <tr><td><code>.*</code></td><td>90</td><td>left</td><td>element-wise multiply</td></tr>
+            <tr><td><code>./</code></td><td>90</td><td>left</td><td>element-wise divide</td></tr>
+            <tr><td><code>.\</code></td><td>90</td><td>left</td><td>element-wise left-divide</td></tr>
+            <tr><td><code>*</code></td><td>80</td><td>left</td><td>matrix multiply</td></tr>
+            <tr><td><code>/</code></td><td>80</td><td>left</td><td>matrix divide</td></tr>
+            <tr><td><code>\</code></td><td>80</td><td>left</td><td>matrix left-divide</td></tr>
+            <tr><td><code>+</code> <code>-</code></td><td>60</td><td>left</td><td>addition/subtraction</td></tr>
+            <tr><td><code>:</code></td><td>20</td><td>left</td><td>colon range</td></tr>
+            <tr><td><code>&lt;</code> <code>&lt;=</code></td><td>10</td><td>left</td><td>relational</td></tr>
+            <tr><td><code>&gt;</code> <code>&gt;=</code></td><td>10</td><td>left</td><td>relational</td></tr>
+            <tr><td><code>==</code> <code>~=</code></td><td>10</td><td>left</td><td>equality</td></tr>
+            <tr><td><code>&amp;</code></td><td>5</td><td>left</td><td>logical AND</td></tr>
+            <tr><td><code>|</code></td><td>3</td><td>left</td><td>logical OR</td></tr>
+            <tr><td><code>&amp;&amp;</code></td><td>4</td><td>left</td><td>short-circuit AND</td></tr>
+            <tr><td><code>||</code></td><td>2</td><td>left</td><td>short-circuit OR</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Punctuation</h3>
+        <table>
+          <thead><tr><th>Token</th><th>Name</th></tr></thead>
+          <tbody>
+            <tr><td><code>;</code></td><td>statement end / row separator</td></tr>
+            <tr><td><code>,</code></td><td>expression separator / column separator</td></tr>
+            <tr><td><code>=</code></td><td>assignment</td></tr>
+            <tr><td><code>()</code></td><td>function call / grouping</td></tr>
+            <tr><td><code>[]</code></td><td>matrix / array literal</td></tr>
+            <tr><td><code>{}</code></td><td>cell array literal</td></tr>
+            <tr><td><code>...</code></td><td>line continuation</td></tr>
+            <tr><td><code>@</code></td><td>anonymous function / function handle</td></tr>
+            <tr><td><code>.</code></td><td>struct field access / decimal point</td></tr>
+            <tr><td><code>:</code></td><td>colon range / all-elements</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="doc-section" id="spec-types">
+        <h2>2. Types</h2>
+        <p>MATBOX has a unified core type: <strong><code>MxArray</code></strong> — an N-dimensional array of complex numbers (<code>Complex64</code>).</p>
+        <p>Additional wrapper types:</p>
+        <table>
+          <thead><tr><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>Array</code></td><td>N-D complex-valued matrix (the universal type)</td></tr>
+            <tr><td><code>String</code></td><td>Character string</td></tr>
+            <tr><td><code>Cell</code></td><td>Heterogeneous array (<code>Vec&lt;Vec&lt;Value&gt;&gt;</code>)</td></tr>
+            <tr><td><code>Struct</code></td><td>Field-value map (<code>HashMap&lt;String, Value&gt;</code>)</td></tr>
+            <tr><td><code>Func</code></td><td>Anonymous function handle (captured environment)</td></tr>
+            <tr><td><code>FuncRef</code></td><td>Named function handle (<code>@sin</code>)</td></tr>
+            <tr><td><code>Multi</code></td><td>Multi-output value container</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="doc-section" id="spec-expressions">
+        <h2>3. Expressions</h2>
+
+        <h3>Arithmetic</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">a</span> <span class="tok-op">+</span> <span class="tok-var">b</span>      <span class="tok-com">% addition (broadcast)</span>
+<span class="tok-var">a</span> <span class="tok-op">-</span> <span class="tok-var">b</span>      <span class="tok-com">% subtraction</span>
+<span class="tok-var">a</span> <span class="tok-op">*</span> <span class="tok-var">b</span>      <span class="tok-com">% matrix multiply</span>
+<span class="tok-var">a</span> <span class="tok-op">.*</span> <span class="tok-var">b</span>     <span class="tok-com">% element-wise multiply</span>
+<span class="tok-var">a</span> <span class="tok-op">/</span> <span class="tok-var">b</span>      <span class="tok-com">% matrix right-divide (a * inv(b))</span>
+<span class="tok-var">a</span> <span class="tok-op">./</span> <span class="tok-var">b</span>     <span class="tok-com">% element-wise divide</span>
+<span class="tok-var">a</span> <span class="tok-op">^</span> <span class="tok-var">n</span>      <span class="tok-com">% matrix power</span>
+<span class="tok-var">a</span> <span class="tok-op">.^</span> <span class="tok-var">n</span>     <span class="tok-com">% element-wise power</span>
+<span class="tok-var">a</span> <span class="tok-op">\</span> <span class="tok-var">b</span>      <span class="tok-com">% matrix left-divide (inv(a) * b)</span>
+<span class="tok-var">a</span><span class="tok-op">'</span>         <span class="tok-com">% conjugate transpose</span>
+<span class="tok-var">a</span><span class="tok-op">.</span><span class="tok-op">'</span>       <span class="tok-com">% non-conjugate transpose</span></code></pre>
+        </div>
+
+        <h3>Relational</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">a</span> <span class="tok-op">==</span> <span class="tok-var">b</span>     <span class="tok-com">% equal</span>
+<span class="tok-var">a</span> <span class="tok-op">~=</span> <span class="tok-var">b</span>     <span class="tok-com">% not equal</span>
+<span class="tok-var">a</span> <span class="tok-op">&lt;</span> <span class="tok-var">b</span>      <span class="tok-com">% less than</span>
+<span class="tok-var">a</span> <span class="tok-op">&lt;=</span> <span class="tok-var">b</span>     <span class="tok-com">% less or equal</span>
+<span class="tok-var">a</span> <span class="tok-op">&gt;</span> <span class="tok-var">b</span>      <span class="tok-com">% greater than</span>
+<span class="tok-var">a</span> <span class="tok-op">&gt;=</span> <span class="tok-var">b</span>     <span class="tok-com">% greater or equal</span></code></pre>
+        </div>
+        <p>All relational operators work element-wise and return logical arrays (1.0 / 0.0).</p>
+
+        <h3>Logical</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">a</span> <span class="tok-op">&amp;</span> <span class="tok-var">b</span>      <span class="tok-com">% element-wise AND</span>
+<span class="tok-var">a</span> <span class="tok-op">|</span> <span class="tok-var">b</span>      <span class="tok-com">% element-wise OR</span>
+<span class="tok-op">~</span><span class="tok-var">a</span>         <span class="tok-com">% logical NOT</span>
+<span class="tok-var">a</span> <span class="tok-op">&amp;&amp;</span> <span class="tok-var">b</span>     <span class="tok-com">% short-circuit AND (scalar only)</span>
+<span class="tok-var">a</span> <span class="tok-op">||</span> <span class="tok-var">b</span>     <span class="tok-com">% short-circuit OR (scalar only)</span></code></pre>
+        </div>
+
+        <h3>Colon range</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-num">1</span><span class="tok-op">:</span><span class="tok-num">10</span>              <span class="tok-com">% [1 2 3 4 5 6 7 8 9 10]</span>
+<span class="tok-num">1</span><span class="tok-op">:</span><span class="tok-num">2</span><span class="tok-op">:</span><span class="tok-num">10</span>            <span class="tok-com">% [1 3 5 7 9]</span>
+<span class="tok-num">10</span><span class="tok-op">:-</span><span class="tok-num">1</span><span class="tok-op">:</span><span class="tok-num">1</span>           <span class="tok-com">% [10 9 8 7 6 5 4 3 2 1]</span>
+<span class="tok-var">A</span>(<span class="tok-op">:</span>, <span class="tok-op">:</span>)           <span class="tok-com">% all rows and columns</span>
+<span class="tok-var">A</span>(<span class="tok-kw">end</span>)            <span class="tok-com">% last element</span>
+<span class="tok-var">A</span>(<span class="tok-kw">end</span><span class="tok-op">-</span><span class="tok-num">1</span><span class="tok-op">:</span><span class="tok-kw">end</span>)      <span class="tok-com">% second-to-last and last</span></code></pre>
+        </div>
+
+        <h3>Function calls</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-fn">sin</span>(<span class="tok-var">x</span>)
+<span class="tok-fn">cos</span>(<span class="tok-var">pi</span>)
+<span class="tok-var">A</span>(<span class="tok-num">1</span>, <span class="tok-num">2</span>)           <span class="tok-com">% matrix indexing (also function call if A is a function)</span>
+<span class="tok-var">f</span> = <span class="tok-op">@</span>(<span class="tok-var">x</span>) <span class="tok-var">x</span><span class="tok-op">^</span><span class="tok-num">2</span>; <span class="tok-fn">f</span>(<span class="tok-num">3</span>)   <span class="tok-com">% anonymous function call</span>
+<span class="tok-var">f</span> = <span class="tok-op">@</span><span class="tok-fn">sin</span>; <span class="tok-fn">f</span>(<span class="tok-var">pi</span><span class="tok-op">/</span><span class="tok-num">2</span>)     <span class="tok-com">% named function handle</span></code></pre>
+        </div>
+
+        <h3>Anonymous functions</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">f</span> = <span class="tok-op">@</span>(<span class="tok-var">x</span>) <span class="tok-var">x</span><span class="tok-op">^</span><span class="tok-num">2</span>
+<span class="tok-var">g</span> = <span class="tok-op">@</span>(<span class="tok-var">x</span>, <span class="tok-var">y</span>) <span class="tok-var">x</span> <span class="tok-op">+</span> <span class="tok-var">y</span>
+<span class="tok-var">h</span> = <span class="tok-op">@</span>() <span class="tok-num">42</span>
+<span class="tok-var">nested</span> = <span class="tok-op">@</span>(<span class="tok-var">x</span>) <span class="tok-op">@</span>(<span class="tok-var">y</span>) <span class="tok-var">x</span> <span class="tok-op">+</span> <span class="tok-var">y</span>   <span class="tok-com">% closures with capture</span></code></pre>
+        </div>
+
+        <h3>Matrix literals</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">A</span> = [<span class="tok-num">1 2 3</span>; <span class="tok-num">4 5 6</span>]    <span class="tok-com">% 2×3 matrix: rows separated by ;</span>
+<span class="tok-var">B</span> = [<span class="tok-num">1</span>, <span class="tok-num">2</span>, <span class="tok-num">3</span>]         <span class="tok-com">% 1×3 row vector</span>
+<span class="tok-var">C</span> = [<span class="tok-num">1</span>; <span class="tok-num">2</span>; <span class="tok-num">3</span>]         <span class="tok-com">% 3×1 column vector</span>
+<span class="tok-var">D</span> = []                  <span class="tok-com">% empty matrix 0×0</span></code></pre>
+        </div>
+
+        <h3>Cell arrays</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">C</span> = {<span class="tok-num">1</span>, <span class="tok-str">'hello'</span>, <span class="tok-op">@</span><span class="tok-fn">sin</span>}        <span class="tok-com">% 1×3 cell row</span>
+<span class="tok-var">C</span> = {<span class="tok-num">1</span>, <span class="tok-num">2</span>; <span class="tok-num">3</span>, <span class="tok-num">4</span>}              <span class="tok-com">% 2×2 cell matrix</span>
+<span class="tok-var">val</span> = <span class="tok-var">C</span>{<span class="tok-num">1</span>, <span class="tok-num">2</span>}                 <span class="tok-com">% brace indexing returns contents</span>
+<span class="tok-var">C</span>{<span class="tok-num">1</span>} = <span class="tok-num">99</span>                     <span class="tok-com">% assignment to cell</span></code></pre>
+        </div>
+
+        <h3>Structs</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">s</span> = <span class="tok-fn">struct</span>(<span class="tok-str">'name'</span>, <span class="tok-str">'test'</span>, <span class="tok-str">'val'</span>, <span class="tok-num">42</span>)
+<span class="tok-var">s</span><span class="tok-dot">.</span><span class="tok-var">name</span>                        <span class="tok-com">% struct field access</span>
+<span class="tok-var">s</span><span class="tok-dot">.</span>(<span class="tok-str">'name'</span>)                    <span class="tok-com">% dynamic field access</span>
+<span class="tok-var">s</span><span class="tok-dot">.</span><span class="tok-var">newfield</span> = <span class="tok-num">99</span>               <span class="tok-com">% auto-vivification</span></code></pre>
+        </div>
+      </section>
+
+      <section class="doc-section" id="spec-statements">
+        <h2>4. Statements</h2>
+
+        <h3>Assignment</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-var">x</span> = <span class="tok-num">42</span>
+<span class="tok-var">A</span>(<span class="tok-num">1</span>, <span class="tok-num">2</span>) = <span class="tok-num">99</span>
+<span class="tok-var">s</span><span class="tok-dot">.</span><span class="tok-var">field</span> = <span class="tok-str">'value'</span>
+[<span class="tok-var">a</span>, <span class="tok-var">b</span>] = <span class="tok-fn">myfunction</span>(<span class="tok-var">x</span>)       <span class="tok-com">% multi-output</span></code></pre>
+        </div>
+
+        <h3>Conditionals</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">if</span> <span class="tok-var">x</span> <span class="tok-op">&gt;</span> <span class="tok-num">0</span>
+    <span class="tok-fn">disp</span>(<span class="tok-str">'positive'</span>)
+<span class="tok-kw">elseif</span> <span class="tok-var">x</span> <span class="tok-op">&lt;</span> <span class="tok-num">0</span>
+    <span class="tok-fn">disp</span>(<span class="tok-str">'negative'</span>)
+<span class="tok-kw">else</span>
+    <span class="tok-fn">disp</span>(<span class="tok-str">'zero'</span>)
+<span class="tok-kw">end</span></code></pre>
+        </div>
+
+        <h3>Switch</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">switch</span> <span class="tok-var">value</span>
+    <span class="tok-kw">case</span> <span class="tok-num">1</span>
+        <span class="tok-fn">disp</span>(<span class="tok-str">'one'</span>)
+    <span class="tok-kw">case</span> {<span class="tok-num">2</span>, <span class="tok-num">3</span>, <span class="tok-num">4</span>}
+        <span class="tok-fn">disp</span>(<span class="tok-str">'small'</span>)
+    <span class="tok-kw">otherwise</span>
+        <span class="tok-fn">disp</span>(<span class="tok-str">'other'</span>)
+<span class="tok-kw">end</span></code></pre>
+        </div>
+
+        <h3>Loops</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">for</span> <span class="tok-var">k</span> = <span class="tok-num">1</span><span class="tok-op">:</span><span class="tok-num">10</span>
+    <span class="tok-fn">disp</span>(<span class="tok-var">k</span>)
+<span class="tok-kw">end</span>
+
+<span class="tok-kw">for</span> <span class="tok-var">val</span> = [<span class="tok-num">10 20 30</span>]
+    <span class="tok-fn">disp</span>(<span class="tok-var">val</span>)
+<span class="tok-kw">end</span>
+
+<span class="tok-kw">while</span> <span class="tok-var">x</span> <span class="tok-op">&gt;</span> <span class="tok-num">0</span>
+    <span class="tok-var">x</span> = <span class="tok-var">x</span> <span class="tok-op">-</span> <span class="tok-num">1</span>
+<span class="tok-kw">end</span></code></pre>
+        </div>
+
+        <h3>Parallel loop (MATBOX extension)</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">parfor</span> <span class="tok-var">k</span> = <span class="tok-num">1</span><span class="tok-op">:</span><span class="tok-num">10</span>
+    <span class="tok-fn">disp</span>(<span class="tok-var">k</span>)
+<span class="tok-kw">end</span></code></pre>
+        </div>
+        <p><code>parfor</code> is parsed and accepted but currently executes sequentially (no parallelization).</p>
+
+        <h3>Loop control</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">for</span> <span class="tok-var">k</span> = <span class="tok-num">1</span><span class="tok-op">:</span><span class="tok-num">10</span>
+    <span class="tok-kw">if</span> <span class="tok-var">k</span> <span class="tok-op">&gt;</span> <span class="tok-num">5</span>, <span class="tok-kw">break</span>, <span class="tok-kw">end</span>
+    <span class="tok-kw">if</span> <span class="tok-fn">mod</span>(<span class="tok-var">k</span>, <span class="tok-num">2</span>) <span class="tok-op">==</span> <span class="tok-num">0</span>, <span class="tok-kw">continue</span>, <span class="tok-kw">end</span>
+    <span class="tok-fn">disp</span>(<span class="tok-var">k</span>)
+<span class="tok-kw">end</span></code></pre>
+        </div>
+
+        <h3>Function definitions</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">function</span> <span class="tok-var">y</span> = <span class="tok-fn">square</span>(<span class="tok-var">x</span>)
+    <span class="tok-var">y</span> = <span class="tok-var">x</span><span class="tok-op">^</span><span class="tok-num">2</span>
+<span class="tok-kw">end</span>
+
+<span class="tok-kw">function</span> [<span class="tok-var">a</span>, <span class="tok-var">b</span>] = <span class="tok-fn">swap</span>(<span class="tok-var">x</span>, <span class="tok-var">y</span>)
+    <span class="tok-var">a</span> = <span class="tok-var">y</span>
+    <span class="tok-var">b</span> = <span class="tok-var">x</span>
+<span class="tok-kw">end</span>
+
+<span class="tok-kw">function</span> <span class="tok-fn">hello</span>()
+    <span class="tok-fn">disp</span>(<span class="tok-str">'Hello, MATBOX!'</span>)
+<span class="tok-kw">end</span>
+
+<span class="tok-kw">function</span> <span class="tok-var">result</span> = <span class="tok-fn">vararg_demo</span>(<span class="tok-var">varargin</span>)
+    <span class="tok-com">% varargin packs extra positional args into a cell</span>
+    <span class="tok-var">result</span> = <span class="tok-var">varargin</span>;
+<span class="tok-kw">end</span>
+
+<span class="tok-kw">function</span> <span class="tok-var">varargout</span> = <span class="tok-fn">vararg_demo2</span>(<span class="tok-var">a</span>, <span class="tok-var">b</span>, <span class="tok-var">varargin</span>)
+    <span class="tok-com">% varargout unpacks cell into multiple output variables</span>
+    <span class="tok-var">varargout</span> = {<span class="tok-var">a</span>, <span class="tok-var">b</span>, <span class="tok-var">varargin</span>};
+<span class="tok-kw">end</span></code></pre>
+        </div>
+        <p>Functions create their own local scope. Variables from the caller workspace are not visible. Input arguments are passed by value (copy-on-write). <code>varargin</code> and <code>varargout</code> can appear at the end of the argument list; they pack/unpack remaining arguments as cell arrays.</p>
+
+        <h3>Try/Catch</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">try</span>
+    <span class="tok-var">result</span> = <span class="tok-fn">risky_operation</span>()
+<span class="tok-kw">catch</span> <span class="tok-var">err</span>
+    <span class="tok-fn">disp</span>(<span class="tok-var">err</span>)
+<span class="tok-kw">end</span></code></pre>
+        </div>
+
+        <h3>Return</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">function</span> <span class="tok-var">result</span> = <span class="tok-fn">compute</span>(<span class="tok-var">x</span>)
+    <span class="tok-kw">if</span> <span class="tok-var">x</span> <span class="tok-op">&lt;</span> <span class="tok-num">0</span>
+        <span class="tok-var">result</span> = <span class="tok-var">NaN</span>
+        <span class="tok-kw">return</span>
+    <span class="tok-kw">end</span>
+    <span class="tok-var">result</span> = <span class="tok-fn">sqrt</span>(<span class="tok-var">x</span>)
+<span class="tok-kw">end</span></code></pre>
+        </div>
+
+        <h3>Persistent variables</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">function</span> <span class="tok-fn">myfunc</span>()
+    <span class="tok-kw">persistent</span> <span class="tok-var">count</span>
+    <span class="tok-kw">if</span> <span class="tok-fn">isempty</span>(<span class="tok-var">count</span>)
+        <span class="tok-var">count</span> = <span class="tok-num">0</span>
+    <span class="tok-kw">end</span>
+    <span class="tok-var">count</span> = <span class="tok-var">count</span> <span class="tok-op">+</span> <span class="tok-num">1</span>
+    <span class="tok-fn">disp</span>(<span class="tok-var">count</span>)
+<span class="tok-kw">end</span></code></pre>
+        </div>
+        <p><code>persistent</code> variables retain their value between calls to the same function. They are initialized to <code>[]</code> on the first call.</p>
+
+        <h3>Global variables</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">global</span> <span class="tok-var">MY_FLAG</span>
+<span class="tok-var">MY_FLAG</span> = <span class="tok-num">42</span>
+
+<span class="tok-kw">function</span> <span class="tok-fn">print_flag</span>()
+    <span class="tok-kw">global</span> <span class="tok-var">MY_FLAG</span>
+    <span class="tok-fn">disp</span>(<span class="tok-var">MY_FLAG</span>)
+<span class="tok-kw">end</span></code></pre>
+        </div>
+        <p><code>global</code> variables are shared across all functions and the base workspace. They must be declared with <code>global</code> in every scope that accesses them.</p>
+      </section>
+
+      <section class="doc-section" id="spec-scripts">
+        <h2>5. Scripts (.mbox files)</h2>
+        <p>A <code>.mbox</code> file is a sequence of statements executed in the caller's workspace. Scripts have no function signature — they are loaded and executed at the call site.</p>
+        <div class="code-block">
+          <div class="head"><span class="file">myscript.mbox</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-com">% myscript.mbox</span>
+<span class="tok-var">x</span> = <span class="tok-num">42</span>;
+<span class="tok-fn">disp</span>(<span class="tok-var">x</span> <span class="tok-op">*</span> <span class="tok-num">2</span>)</code></pre>
+        </div>
+        <p>Run: <code>matbox run myscript.mbox</code> or call the name without extension from the REPL.</p>
+      </section>
+
+      <section class="doc-section" id="spec-builtins">
+        <h2>6. Built-in functions</h2>
+        <p>The full reference of 180+ built-ins follows. Same as the in-repo <code>docs/language.md</code>.</p>
+
+        <h3>Elementary math</h3>
+        <p><code>sin, cos, tan, asin, acos, atan, atan2, sinh, cosh, tanh, asinh, acosh, atanh, exp, log, log10, log2, sqrt, abs, angle, conj, real, imag, floor, ceil, round, fix, sign, mod, rem</code></p>
+
+        <h3>Array operations</h3>
+        <p><code>length, size, numel, ndims, sum, prod, mean, min, max, any, all, cumsum, cumprod, diff, sort, unique, flip, fliplr, flipud, reshape, repmat, kron, diag, find, linspace, logspace</code></p>
+
+        <h3>Linear algebra</h3>
+        <p><code>inv, det, rank, trace, norm, lu, qr, chol, eig, svd, pinv</code></p>
+
+        <h3>Matrix creation</h3>
+        <p><code>zeros, ones, eye, rand, randn, randi, randperm, magic</code></p>
+
+        <h3>String operations</h3>
+        <p><code>strcmp, strcmpi, upper, lower, strtrim, deblank, strsplit, strjoin, num2str, int2str, str2double, sprintf, contains, startsWith, endsWith</code></p>
+
+        <h3>Type checking</h3>
+        <p><code>ischar, islogical, isnumeric, isreal, isscalar, isvector, isrow, iscolumn, ismatrix, isempty, isinf, isnan, isfinite, iscell, isstruct</code></p>
+
+        <h3>Cell operations</h3>
+        <p><code>cellfun, num2cell, cell2mat, cat</code></p>
+
+        <h3>Utilities</h3>
+        <p><code>disp, error, warning, who, clear, exist, format, run, help, feval, input, struct, isfield, fieldnames, rmfield, orderfields, isequal, isequaln, deal, nargin, nargout, tic, toc, clc, pause</code></p>
+      </section>
+
+      <section class="doc-section" id="spec-constants">
+        <h2>7. Constants</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td><code>pi</code></td><td>3.141592653589793</td></tr>
+            <tr><td><code>eps</code></td><td>2.220446049250313e-16</td></tr>
+            <tr><td><code>inf</code></td><td>∞</td></tr>
+            <tr><td><code>nan</code></td><td>NaN</td></tr>
+            <tr><td><code>i</code></td><td>0 + 1i</td></tr>
+            <tr><td><code>j</code></td><td>0 + 1i</td></tr>
+            <tr><td><code>true</code></td><td>1</td></tr>
+            <tr><td><code>false</code></td><td>0</td></tr>
+          </tbody>
+        </table>
+        <p>Constants are stored in the workspace and can be shadowed. Call <code>clear</code> to reset.</p>
+      </section>
+
+      <section class="doc-section" id="spec-extensions">
+        <h2>8. MATBOX extensions</h2>
+        <p>MATBOX extends standard MATLAB syntax with:</p>
+        <table>
+          <thead><tr><th>Feature</th><th>Syntax</th></tr></thead>
+          <tbody>
+            <tr><td>Double-quoted strings</td><td><code>"hello"</code></td></tr>
+            <tr><td><code>#</code> comments</td><td><code># this is a comment</code></td></tr>
+            <tr><td><code>**</code> power operator</td><td><code>2 ** 3</code></td></tr>
+            <tr><td><code>@name</code> function handles</td><td><code>@sin</code>, <code>@cos</code></td></tr>
+            <tr><td>Dynamic field access</td><td><code>s.('fieldname')</code>, <code>s.(expr)</code></td></tr>
+            <tr><td><code>endfunction</code> keyword</td><td><code>endfunction</code> closes function blocks</td></tr>
+            <tr><td><code>parfor</code></td><td><code>parfor i = 1:n</code> — parsed, sequential fallback</td></tr>
+            <tr><td><code>persistent</code></td><td><code>persistent x</code> — retained across calls</td></tr>
+            <tr><td><code>global</code></td><td><code>global x</code> — shared across scopes</td></tr>
+            <tr><td><code>varargin</code> / <code>varargout</code></td><td><code>function varargout = f(varargin)</code></td></tr>
+            <tr><td><code>case {a,b,c}</code></td><td>Multi-value switch matching</td></tr>
+            <tr><td><code>%{...%}</code> block comments</td><td>Multiline block comments</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- LSP -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="lsp">
+        <h2>Language server</h2>
+        <p>MATBOX includes a built-in LSP server for IDE integration.</p>
+        <div class="code-block">
+          <div class="head"><span class="file">terminal</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-fn">cargo</span> run --release -- lsp</code></pre>
+        </div>
+        <p>Configure your editor to use <code>matbox lsp</code> as the language server for <code>.mbox</code> files.</p>
+      </section>
+
+      <section class="doc-section" id="editor-setup">
+        <h2>Editor setup</h2>
+
+        <h3>VSCode</h3>
+        <p>Install the <strong>"LSP"</strong> extension (<code>d0x.assistant-lsp</code>) or <strong>"vscode-lsp"</strong> from the marketplace, then create <code>.vscode/settings.json</code>:</p>
+        <div class="code-block">
+          <div class="head"><span class="file">.vscode/settings.json</span><button data-copy>copy</button></div>
+<pre><code>{
+  <span class="tok-key">"LSP.languageServers"</span>: [
+    {
+      <span class="tok-key">"name"</span>: <span class="tok-str">"matbox"</span>,
+      <span class="tok-key">"command"</span>: [<span class="tok-str">"/path/to/matbox"</span>, <span class="tok-str">"lsp"</span>],
+      <span class="tok-key">"filetypes"</span>: [<span class="tok-str">".mbox"</span>]
+    }
+  ],
+  <span class="tok-key">"files.associations"</span>: {
+    <span class="tok-key">"*.mbox"</span>: <span class="tok-str">"matlab"</span>
+  }
+}</code></pre>
+        </div>
+        <p>Replace <code>/path/to/matbox</code> with the absolute path to the compiled binary (<code>target/release/matbox</code> after running <code>cargo build --release</code>).</p>
+
+        <h3>Neovim (vim-lsp)</h3>
+        <div class="code-block">
+          <div class="head"><span class="file">init.vim</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-kw">if</span> executable(<span class="tok-str">'matbox'</span>)
+    augroup LspMatbox
+        autocmd!
+        autocmd User lsp_setup call lsp#register_server({
+            \ <span class="tok-str">'name'</span>: <span class="tok-str">'matbox'</span>,
+            \ <span class="tok-str">'cmd'</span>: {server_info-&gt;[<span class="tok-str">'matbox'</span>, <span class="tok-str">'lsp'</span>]},
+            \ <span class="tok-str">'whitelist'</span>: [<span class="tok-str">'mbox'</span>],
+            \ })
+    augroup END
+<span class="tok-kw">endif</span></code></pre>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- DEV: RUNNING TESTS -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="dev-running-tests">
+        <h2>Running tests</h2>
+        <div class="code-block">
+          <div class="head"><span class="file">terminal</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-fn">cargo</span> test                       <span class="tok-com"># all tests (437+)</span>
+<span class="tok-fn">cargo</span> test -p matbox-core        <span class="tok-com"># core tests only</span>
+<span class="tok-fn">cargo</span> test -p matbox-math        <span class="tok-com"># math tests only</span></code></pre>
+        </div>
+      </section>
+
+      <section class="doc-section" id="dev-style">
+        <h2>Code style</h2>
+        <div class="code-block">
+          <div class="head"><span class="file">terminal</span><button data-copy>copy</button></div>
+<pre><code><span class="tok-fn">cargo</span> fmt
+<span class="tok-fn">cargo</span> clippy</code></pre>
+        </div>
+      </section>
+
+      <section class="doc-section" id="dev-adding-builtin">
+        <h2>Adding a builtin</h2>
+        <p>Builtins are defined in <code>crates/matbox-core/src/builtins.rs</code>. Each builtin is a match arm in the <code>call()</code> function. Add the function name and implementation, then add tests in <code>crates/matbox-core/src/eval.rs</code>.</p>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- BENCHMARKS -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="benchmarks">
+        <h2>Benchmarks</h2>
+        <table>
+          <thead><tr><th>Benchmark</th><th>Workload</th><th style="text-align: right;">Time</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Stress test suite</td>
+              <td>Arithmetic, matrix ops, matrix multiply, statistics, FFT, polynomial, sets, cells, structs, functions, recursion, strings</td>
+              <td style="text-align: right;"><strong>1.508 s</strong></td>
+            </tr>
+            <tr>
+              <td>Matrix multiplication</td>
+              <td>10 × (500×500 × 500×500) matrix multiplications</td>
+              <td style="text-align: right;"><strong>6.254 s</strong></td>
+            </tr>
+            <tr>
+              <td>Large numerical stress</td>
+              <td>1,000,000 <code>sin()</code> evaluations + 1000×1000 matrix operations + FFT(4096) + statistics + user functions</td>
+              <td style="text-align: right;"><strong>5.437 s</strong></td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>Benchmark environment</h3>
+        <table>
+          <tbody>
+            <tr><td>Version</td><td>MATBOX v0.1.0</td></tr>
+            <tr><td>Language</td><td>Rust</td></tr>
+            <tr><td>Build</td><td>Release</td></tr>
+            <tr><td>Platform</td><td>Linux</td></tr>
+            <tr><td>CPU</td><td>AMD Ryzen 7 7700</td></tr>
+            <tr><td>RAM</td><td>32GB DDR5</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- STATUS -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="status">
+        <h2>Project status</h2>
+        <p>MATBOX is <strong>not feature-complete</strong>. While many language features and built-in functions are implemented, others are still under development. Users may encounter bugs, incomplete features, compatibility differences with MATLAB, performance limitations, and breaking changes between releases.</p>
+        <p>Please verify important computational results before relying on MATBOX for research, engineering, academic, or production work.</p>
+        <h3>Roadmap</h3>
+        <table>
+          <thead><tr><th>Area</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Scalar / matrix arithmetic, linalg, control flow, functions, structs, cells, strings, set ops, statistics, FFT, polynomials, special functions, 180+ builtins, LSP, MATBOX extensions</td><td>✅</td></tr>
+            <tr><td>Graphics engine</td><td>🚧 In progress</td></tr>
+            <tr><td>Simulink solver</td><td>🚧 In progress</td></tr>
+            <tr><td>Python bindings</td><td>🚧 In progress</td></tr>
+            <tr><td>Tauri desktop app</td><td>🚧 In progress</td></tr>
+            <tr><td>Web (TypeScript) engine</td><td>📋 Planned</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- LEGAL -->
+      <!-- ============================================================ -->
+      <section class="doc-section" id="legal">
+        <h2>Legal &amp; trademark</h2>
+
+        <h3>Disclaimer</h3>
+        <p>MATBOX is an independent, open-source project developed to provide a MATLAB-compatible programming language and runtime. It is currently under active development and should be considered <strong>experimental software</strong>.</p>
+
+        <h3>Compatibility</h3>
+        <p>MATBOX aims to provide compatibility with MATLAB <code>.m</code> scripts wherever practical. However, compatibility is an ongoing effort, and not all MATLAB language features or built-in functions are currently supported.</p>
+        <p>Compatibility with MATLAB does <strong>not</strong> imply that MATBOX contains, copies, or redistributes any proprietary MATLAB code.</p>
+
+        <h3>Clean-room implementation</h3>
+        <p>MATBOX is a <strong>clean-room implementation</strong> developed independently. It is not based on copied, decompiled, reverse-engineered, or otherwise derived proprietary MATLAB source code. The project is implemented from original code using publicly available language behavior and documentation.</p>
+
+        <h3>Copyright &amp; trademarks</h3>
+        <p>MATBOX is an independent project and is <strong>not affiliated with, endorsed by, sponsored by, or associated with MathWorks</strong>.</p>
+        <p><strong>MATLAB®</strong> is a registered trademark of MathWorks. All other trademarks, product names, and company names mentioned in this project belong to their respective owners.</p>
+        <p>Copyright © 2026 Irfan. All rights reserved unless otherwise specified by the project's license.</p>
+
+        <h3>Trademark policy</h3>
+        <p>The name <strong>MATBOX™</strong>, the MATBOX logo, and the project's branding are the intellectual property of the MATBOX project owner.</p>
+        <p>You are welcome to use, modify, and redistribute the MATBOX source code under the terms of the project's software license.</p>
+        <p>However, you <strong>may not</strong>:</p>
+        <ul>
+          <li>Redistribute a modified version under the name <strong>MATBOX</strong>.</li>
+          <li>Use the <strong>MATBOX</strong> name or logo in a way that suggests official endorsement.</li>
+          <li>Market or sell a fork as the official MATBOX project.</li>
+        </ul>
+        <p>If you create a modified or forked version, you must use a different project name and clearly indicate that it is an unofficial fork.</p>
+        <p>The source code is licensed under AGPL-3.0, but the MATBOX name and logo may not be used for modified or redistributed versions without permission. See <code>TRADEMARKS.md</code> for details.</p>
+
+        <h3>License</h3>
+        <p>MATBOX is distributed under the <strong>AGPLv3</strong> license. Please read the <code>LICENSE</code> file for your rights and obligations regarding use, modification, and redistribution.</p>
+
+        <h3>No warranty</h3>
+        <p>THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.</p>
+        <p>IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</p>
+
+        <h3>Feedback</h3>
+        <p>Bug reports, feature requests, pull requests, and community contributions are welcome and greatly appreciated. MATBOX is an evolving project, and community feedback helps improve its quality and compatibility.</p>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============== FOOTER ============== -->
+  <footer class="footer">
+    <pre class="ascii">  __  __       _ ____   _  __
+ |  \/  | __ _| | __ ) | |/ /
+ | |\/| |/ _` | |  _ \ | ' /
+ | |  | | (_| | | |_) || . \
+ |_|  |_|\__,_|_|____(_)_|\_\</pre>
+    <div class="footer-links">
+      <a href="index.html">Home</a>
+      <a href="docs.html">Documentation</a>
+      <a href="https://github.com/Mr-DS-ML-85/Matbox" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/Mr-DS-ML-85/Matbox/blob/main/LICENSE" target="_blank" rel="noopener">License (AGPLv3)</a>
+      <a href="https://github.com/Mr-DS-ML-85/Matbox/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+    <div class="footer-meta">
+      MATBOX is an independent project. Not affiliated with, endorsed by, or associated with MathWorks.<br />
+      MATLAB® is a registered trademark of MathWorks. All rights belong to their respective owners.<br />
+      Copyright © 2026 Irfan. Released under AGPLv3.
+    </div>
+  </footer>
+
+  <!-- Mobile sidebar toggle -->
+  <button class="docs-mobile-toggle" id="docs-mobile-toggle" aria-label="Toggle sidebar">☰</button>
+
+  <!-- Search JS -->
+  <script src="assets/js/search.js"></script>
+  <script>
+    // Copy buttons
+    document.querySelectorAll('[data-copy]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const code = btn.closest('.code-block').querySelector('code, pre').innerText;
+        navigator.clipboard.writeText(code);
+        const orig = btn.textContent;
+        btn.textContent = 'copied ✓';
+        btn.style.color = 'var(--green)';
+        btn.style.borderColor = 'var(--green)';
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.style.color = '';
+          btn.style.borderColor = '';
+        }, 1200);
+      });
+    });
+  </script>
+</body>
+</html>

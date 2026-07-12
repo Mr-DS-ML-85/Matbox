@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MATBOX — A clean-room MATLAB replica in Rust</title>
+  <meta name="description" content="MATBOX (MATrix BOX) is a clean-room, from-scratch reimplementation of the MATLAB language and runtime, written in 100% Rust. Complex-valued N-dimensional arrays, vectorized ops, 180+ builtins, LSP, REPL." />
+  <meta name="theme-color" content="#07090c" />
+  <meta property="og:title" content="MATBOX — A clean-room MATLAB replica in Rust" />
+  <meta property="og:description" content="The compute engine is 100% Rust. No Python, no C++, no C." />
+  <meta property="og:type" content="website" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="assets/css/main.css" />
+
+  <!-- favicon: an inline SVG box with MX -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='24' rx='3' fill='none' stroke='%235af78e' stroke-width='2'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='monospace' font-weight='700' font-size='13' fill='%235af78e'%3EMX%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+
+  <!-- ============== NAV ============== -->
+  <nav class="nav">
+    <a href="index.html" class="nav-brand nav-brand-link">
+      <span class="logo">MX</span>
+      <span>MATBOX</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">features</a>
+      <a href="#architecture">crates</a>
+      <a href="#builtins">builtins</a>
+      <a href="docs.html">docs</a>
+      <a href="https://github.com/Mr-DS-ML-85/Matbox" target="_blank" rel="noopener">github ↗</a>
+      <a href="docs.html#getting-started" class="nav-cta">get started</a>
+    </div>
+  </nav>
+
+  <!-- ============== HERO ============== -->
+  <section class="hero">
+    <canvas id="three-canvas"></canvas>
+    <div class="hero-inner">
+      <div class="hero-left">
+        <div class="hero-eyebrow">
+          <span class="dot"></span>
+          <span>v0.1.0 · clean-room · 100% rust</span>
+        </div>
+
+        <h1>
+          A <span class="gradient">MATLAB</span><br />
+          that lives in <span class="gradient">Rust</span>.
+        </h1>
+
+        <div class="tagline">
+          <span class="prompt">~/matbox $</span>
+          <span>./matbox repl</span>
+        </div>
+
+        <p class="lede">
+          <strong style="color: var(--green);">MAT</strong>rix <strong style="color: var(--green);">BOX</strong> — a ground-up reimplementation
+          of the MATLAB language and runtime. Every number is a complex-valued
+          N-dimensional array. Every operation is vectorized. The compute engine
+          is 100% Rust — no Python, no C++, no C.
+        </p>
+
+        <div class="hero-actions">
+          <a href="docs.html#getting-started" class="btn btn-primary">
+            <span>▶</span> Get started
+          </a>
+          <a href="https://github.com/Mr-DS-ML-85/Matbox" target="_blank" rel="noopener" class="btn btn-ghost">
+            <span>★</span> Star on GitHub
+          </a>
+        </div>
+
+        <div class="hero-stats">
+          <div class="stat"><span class="num">437+</span><span class="lbl">tests passing</span></div>
+          <div class="stat"><span class="num">180+</span><span class="lbl">built-ins</span></div>
+          <div class="stat"><span class="num">7</span><span class="lbl">crates</span></div>
+          <div class="stat"><span class="num">1</span><span class="lbl">language: Rust</span></div>
+        </div>
+      </div>
+
+      <div class="hero-right">
+        <div class="terminal" aria-label="MATBOX REPL demo">
+          <div class="terminal-header">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <div class="title">matbox — repl — 80×24</div>
+            <div style="width: 40px;"></div>
+          </div>
+          <div class="terminal-body" id="term-body">
+            <!-- terminal.js fills this -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== FEATURES ============== -->
+  <section class="section" id="features">
+    <div class="section-inner">
+      <div class="section-head">
+        <span class="section-eyebrow">// why matbox</span>
+        <h2>Numeric computing, without the license.</h2>
+        <p>Same vectorized semantics you already know. A runtime you can read, fork, and embed. From a single-binary REPL to a Tauri desktop app and a Python module.</p>
+      </div>
+
+      <div class="features">
+        <div class="feature">
+          <div class="icon">[ ]</div>
+          <h3>N-D complex arrays</h3>
+          <p>One universal type: <code>MxArray</code> of <code>Complex64</code>. Every op is broadcast and vectorized by default. No special cases.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">∑</div>
+          <h3>180+ builtins</h3>
+          <p>Trig, linalg (QR / SVD / LU / Cholesky / eig), FFT, polynomials, statistics, strings, regex, cellfun, structfun — the kitchen sink.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">λ</div>
+          <h3>Closures & handles</h3>
+          <p>Anonymous functions, function handles, multi-level closures with free-variable capture, and <code>varargin</code> / <code>varargout</code>.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">LSP</div>
+          <h3>Language server</h3>
+          <p>Real completions, hover docs, and diagnostics for <code>.mbox</code> files in VSCode, Neovim, or any LSP client.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">⚙</div>
+          <h3>C FFI</h3>
+          <p>Embed MATBOX in any C / C++ / Python project via <code>matbox.h</code>. Single header, zero magic, predictable memory.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">⛰</div>
+          <h3>Simulink-like sim</h3>
+          <p>Block-diagram solver (<code>matbox-sim</code>) and a WebGL/Canvas graphics backend — interactive plots without MATLAB's runtime.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">⚡</div>
+          <h3>Blazing fast</h3>
+          <p>1.5s stress suite. 6.2s for ten 500×500 multiplies. Pure Rust, column-major, no LAPACK dependency.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">⎇</div>
+          <h3>AGPLv3 + clean-room</h3>
+          <p>Written from original code. Not derived from MATLAB source. Open source, no telemetry, no phone-home.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============== CODE SAMPLE ============== -->
+  <section class="section" id="quickstart">
+    <div class="section-inner">
+      <div class="section-head">
+        <span class="section-eyebrow">// quickstart</span>
+        <h2>From <code>cargo build</code> to <code>eig</code> in 60 seconds.</h2>
+        <p>Install once, then drive it from the REPL, scripts, or your editor.</p>
+      </div>
+
+      <div class="code-block">
+        <div class="head">
+          <span class="file">install.sh</span>
+          <button data-copy>copy</button>
+        </div>
+<pre><code><span class="tok-com"># clone & build</span>
+<span class="tok-fn">git</span> clone https://github.com/Mr-DS-ML-85/Matbox
+<span class="tok-fn">cd</span> Matbox
+<span class="tok-fn">cargo</span> build --release
+
+<span class="tok-com"># drop into the REPL</span>
+<span class="tok-fn">cargo</span> run --release
+
+<span class="tok-com"># or run a script</span>
+<span class="tok-fn">cargo</span> run --release -- run examples/demo.mbox</code></pre>
+      </div>
+
+      <div class="code-block">
+        <div class="head">
+          <span class="file">demo.mbox</span>
+          <button data-copy>copy</button>
+        </div>
+<pre><code><span class="tok-com">% hello, MATBOX</span>
+<span class="tok-var">A</span> = [<span class="tok-num">1 2 3</span>; <span class="tok-num">4 5 6</span>; <span class="tok-num">7 8 10</span>]
+
+<span class="tok-com">% matrix arithmetic</span>
+<span class="tok-var">B</span> = <span class="tok-var">A</span><span class="tok-op">.</span><span class="tok-op">*</span> <span class="tok-num">2</span>          <span class="tok-com">% element-wise</span>
+<span class="tok-var">C</span> = <span class="tok-var">A</span> <span class="tok-op">*</span> <span class="tok-var">A</span><span class="tok-op">'</span>          <span class="tok-com">% matrix product</span>
+
+<span class="tok-com">% eigendecomposition</span>
+<span class="tok-op">[</span><span class="tok-var">V</span><span class="tok-dot">,</span> <span class="tok-var">D</span><span class="tok-op">]</span> = <span class="tok-fn">eig</span>(<span class="tok-var">A</span>)
+
+<span class="tok-com">% anonymous function & closure</span>
+<span class="tok-var">f</span> = <span class="tok-op">@</span>(<span class="tok-var">x</span>) <span class="tok-var">x</span><span class="tok-op">.</span><span class="tok-op">^</span><span class="tok-num">2</span> <span class="tok-op">+</span> <span class="tok-num">1</span>
+<span class="tok-fn">disp</span>(<span class="tok-fn">f</span>(<span class="tok-num">3</span>))             <span class="tok-com">% 10</span>
+
+<span class="tok-com">% function def</span>
+<span class="tok-kw">function</span> <span class="tok-var">r</span> = <span class="tok-fn">fib</span>(<span class="tok-var">n</span>)
+    <span class="tok-kw">if</span> <span class="tok-var">n</span> <span class="tok-op">&lt;=</span> <span class="tok-num">1</span>
+        <span class="tok-var">r</span> = <span class="tok-var">n</span>
+    <span class="tok-kw">else</span>
+        <span class="tok-var">r</span> = <span class="tok-fn">fib</span>(<span class="tok-var">n</span><span class="tok-op">-</span><span class="tok-num">1</span>) <span class="tok-op">+</span> <span class="tok-fn">fib</span>(<span class="tok-var">n</span><span class="tok-op">-</span><span class="tok-num">2</span>)
+    <span class="tok-kw">end</span>
+<span class="tok-kw">end</span>
+
+<span class="tok-fn">disp</span>(<span class="tok-fn">fib</span>(<span class="tok-num">10</span>))           <span class="tok-com">% 55</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============== ARCHITECTURE ============== -->
+  <section class="section" id="architecture">
+    <div class="section-inner">
+      <div class="section-head">
+        <span class="section-eyebrow">// architecture</span>
+        <h2>Seven crates. One engine.</h2>
+        <p>Clean separation of concerns. Use the whole stack or embed just the core.</p>
+      </div>
+
+      <div class="arch">
+        <div class="row">
+          <span class="tag">matbox-cli</span>
+          <span class="desc">REPL and script runner — the <code>matbox</code> binary you call from the terminal.</span>
+        </div>
+        <div class="row">
+          <span class="tag">matbox-lsp</span>
+          <span class="desc">Language Server Protocol server. Completions, hover, diagnostics for <code>.mbox</code>.</span>
+        </div>
+        <div class="row">
+          <span class="tag">matbox-core</span>
+          <span class="desc">Lexer, parser, AST, interpreter, 180+ builtins. The brain. (325+ tests)</span>
+        </div>
+        <div class="row">
+          <span class="tag">matbox-math</span>
+          <span class="desc">Column-major <code>MxArray</code>, LAPACK-free linalg — QR, SVD, LU, Cholesky, eig.</span>
+        </div>
+        <div class="row">
+          <span class="tag">matbox-graphics</span>
+          <span class="desc">WebGL/Canvas plotting backend. <code>plot</code>, <code>surf</code>, <code>mesh</code> in the browser.</span>
+        </div>
+        <div class="row">
+          <span class="tag">matbox-sim</span>
+          <span class="desc">Simulink-like block-diagram solver for dynamic systems.</span>
+        </div>
+        <div class="row">
+          <span class="tag">matbox-ffi</span>
+          <span class="desc">C FFI for embedding — single-header <code>matbox.h</code>, call MATBOX from anywhere.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============== BUILTINS ============== -->
+  <section class="section" id="builtins">
+    <div class="section-inner">
+      <div class="section-head">
+        <span class="section-eyebrow">// built-in functions</span>
+        <h2>180+ functions. 100% from scratch.</h2>
+        <p>No call-out to MATLAB. No call-out to NumPy. Pure Rust implementations across every category.</p>
+      </div>
+
+      <div class="builtin-grid">
+        <div class="builtin-card">
+          <h4>trigonometry</h4>
+          <div class="fns">
+            <span>sin</span><span>cos</span><span>tan</span><span>asin</span><span>acos</span><span>atan</span><span>atan2</span><span>sinh</span><span>cosh</span><span>tanh</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>linear algebra</h4>
+          <div class="fns">
+            <span>inv</span><span>det</span><span>rank</span><span>trace</span><span>norm</span><span>lu</span><span>qr</span><span>chol</span><span>eig</span><span>svd</span><span>pinv</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>array</h4>
+          <div class="fns">
+            <span>length</span><span>size</span><span>sum</span><span>prod</span><span>mean</span><span>median</span><span>std</span><span>var</span><span>min</span><span>max</span><span>find</span><span>sort</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>matrix creation</h4>
+          <div class="fns">
+            <span>zeros</span><span>ones</span><span>eye</span><span>rand</span><span>randn</span><span>randi</span><span>randperm</span><span>magic</span><span>linspace</span><span>logspace</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>signal / fft</h4>
+          <div class="fns">
+            <span>fft</span><span>ifft</span><span>fftshift</span><span>ifftshift</span><span>conv</span><span>filter</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>polynomials</h4>
+          <div class="fns">
+            <span>polyval</span><span>poly</span><span>roots</span><span>polyfit</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>strings</h4>
+          <div class="fns">
+            <span>strcmp</span><span>upper</span><span>lower</span><span>sprintf</span><span>strsplit</span><span>strjoin</span><span>contains</span><span>regexprep</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>statistics</h4>
+          <div class="fns">
+            <span>corrcoef</span><span>cov</span><span>mode</span><span>std</span><span>var</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>set / cell</h4>
+          <div class="fns">
+            <span>intersect</span><span>setdiff</span><span>union</span><span>unique</span><span>cellfun</span><span>num2cell</span><span>cell2mat</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>type / cast</h4>
+          <div class="fns">
+            <span>ischar</span><span>isnumeric</span><span>islogical</span><span>isa</span><span>double</span><span>int8</span><span>uint64</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>numerical</h4>
+          <div class="fns">
+            <span>fzero</span><span>trapz</span><span>integral</span>
+          </div>
+        </div>
+        <div class="builtin-card">
+          <h4>special</h4>
+          <div class="fns">
+            <span>erf</span><span>erfc</span><span>erfinv</span><span>gamma</span><span>gammaln</span>
+          </div>
+        </div>
+      </div>
+
+      <p style="text-align: center; margin-top: 40px;">
+        <a href="docs.html" class="btn btn-ghost">View the full reference →</a>
+      </p>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============== BENCHMARKS ============== -->
+  <section class="section" id="benchmarks">
+    <div class="section-inner">
+      <div class="section-head">
+        <span class="section-eyebrow">// benchmarks</span>
+        <h2>Fast enough that you'll forget it's Rust.</h2>
+        <p>Release builds on a Ryzen 7 7700, 32GB DDR5. Single-threaded.</p>
+      </div>
+
+      <div class="code-block">
+        <div class="head"><span class="file">cargo run --release -- bench</span></div>
+<pre><code><span class="tok-var">Stress test suite</span>          <span class="tok-num">1.508 s</span>
+  · arithmetic, matrix ops, statistics, FFT, polynomial,
+    sets, cells, structs, functions, recursion, strings
+
+<span class="tok-var">Matrix multiplication</span>      <span class="tok-num">6.254 s</span>
+  · 10 × (500×500 × 500×500) matrix multiplications
+
+<span class="tok-var">Large numerical stress</span>     <span class="tok-num">5.437 s</span>
+  · 1,000,000 sin() evaluations
+  · 1000×1000 matrix operations
+  · FFT(4096) + statistics + user functions</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============== CTA ============== -->
+  <section class="section">
+    <div class="section-inner" style="text-align: center;">
+      <div class="section-head">
+        <span class="section-eyebrow">// ship it</span>
+        <h2>Ready to leave the toolbox behind?</h2>
+        <p>Clone, build, run. The full language spec lives at <a href="docs.html">/docs</a>.</p>
+      </div>
+      <div class="hero-actions" style="justify-content: center;">
+        <a href="docs.html#getting-started" class="btn btn-primary">
+          <span>▶</span> Read the docs
+        </a>
+        <a href="https://github.com/Mr-DS-ML-85/Matbox" target="_blank" rel="noopener" class="btn btn-ghost">
+          <span>★</span> Star on GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== FOOTER ============== -->
+  <footer class="footer">
+    <pre class="ascii">  __  __       _ ____   _  __
+ |  \/  | __ _| | __ ) | |/ /
+ | |\/| |/ _` | |  _ \ | ' /
+ | |  | | (_| | | |_) || . \
+ |_|  |_|\__,_|_|____(_)_|\_\</pre>
+    <div class="footer-links">
+      <a href="index.html">Home</a>
+      <a href="docs.html">Documentation</a>
+      <a href="https://github.com/Mr-DS-ML-85/Matbox" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/Mr-DS-ML-85/Matbox/blob/main/LICENSE" target="_blank" rel="noopener">License (AGPLv3)</a>
+      <a href="https://github.com/Mr-DS-ML-85/Matbox/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+    <div class="footer-meta">
+      MATBOX is an independent project. Not affiliated with, endorsed by, or associated with MathWorks.<br />
+      MATLAB® is a registered trademark of MathWorks. All rights belong to their respective owners.<br />
+      Copyright © 2026 Irfan. Released under AGPLv3.
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script src="assets/js/three-scene.js"></script>
+  <script src="assets/js/terminal.js"></script>
+  <script>
+    // Copy buttons
+    document.querySelectorAll('[data-copy]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const code = btn.closest('.code-block').querySelector('code').innerText;
+        navigator.clipboard.writeText(code);
+        const orig = btn.textContent;
+        btn.textContent = 'copied ✓';
+        btn.style.color = 'var(--green)';
+        btn.style.borderColor = 'var(--green)';
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.style.color = '';
+          btn.style.borderColor = '';
+        }, 1200);
+      });
+    });
+  </script>
+</body>
+</html>
