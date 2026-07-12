@@ -1,0 +1,9 @@
+{
+  "identifier": "default",
+  "description": "Default MATBOX capabilities",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open"
+  ]
+}

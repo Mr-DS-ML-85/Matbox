@@ -1,0 +1,13 @@
+[package]
+name = "matbox-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "matbox"
+path = "src/main.rs"
+
+[dependencies]
+matbox-core.workspace = true
+matbox-lsp.workspace = true
+clap = { version = "4", features = ["derive"] }

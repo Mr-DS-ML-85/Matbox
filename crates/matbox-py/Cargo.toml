@@ -1,0 +1,12 @@
+[package]
+name = "matbox-py"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "matbox"
+crate-type = ["cdylib"]
+
+[dependencies]
+matbox-core.workspace = true
+pyo3 = { version = "0.21", features = ["extension-module"] }

@@ -1,0 +1,17 @@
+[package]
+name = "matbox-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MATBOX core: lexer, MATLAB-flavored parser, interpreter, and column-major workspace"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+num-complex.workspace = true
+regex.workspace = true
+matbox-math = { path = "../matbox-math" }
+matbox-graphics = { path = "../matbox-graphics" }
+
+[dev-dependencies]

@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+exclude = ["crates/matbox-tauri"]
+members = [
+    "crates/matbox-math",
+    "crates/matbox-core",
+    "crates/matbox-cli",
+    "crates/matbox-graphics",
+    "crates/matbox",
+    "crates/matbox-sim",
+    "crates/matbox-ffi",
+    "crates/matbox-lsp",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["MATBOX contributors"]
+description = "MATBOX — a clean-room, from-scratch MATLAB replica (Rust compute engine + TypeScript web engine)"
+
+[workspace.dependencies]
+matbox-core = { path = "crates/matbox-core" }
+matbox-math = { path = "crates/matbox-math" }
+matbox-graphics = { path = "crates/matbox-graphics" }
+matbox-sim = { path = "crates/matbox-sim" }
+matbox-lsp = { path = "crates/matbox-lsp" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+num-complex = "0.4"
+regex = "1"

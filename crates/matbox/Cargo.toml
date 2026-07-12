@@ -1,0 +1,8 @@
+[package]
+name = "matbox"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+matbox-core.workspace = true
+matbox-math.workspace = true

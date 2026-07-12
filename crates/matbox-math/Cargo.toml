@@ -1,0 +1,12 @@
+[package]
+name = "matbox-math"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MATBOX math: column-major N-D array, elementwise ops, linear algebra, special functions"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+num-complex = { version = "0.4", features = ["serde"] }

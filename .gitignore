@@ -1,0 +1,11 @@
+.aider*
+conformance
+packages
+specs
+target
+conformance/*
+packages/*
+specs/*
+target/*
+Cargo.lock
+.claude

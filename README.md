@@ -1,0 +1,330 @@
+# MATBOX
+
+**MAT**rix **BOX** — a clean-room, from-scratch MATLAB replica written in Rust.
+
+```
+  __  __       _ ____   _  __
+ |  \/  | __ _| | __ ) | |/ /
+ | |\/| |/ _` | |  _ \ | ' / 
+ | |  | | (_| | | |_) || . \ 
+ |_|  |_|\__,_|_|____(_)_|\_\
+```
+
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
+[![Version](https://img.shields.io/badge/version-0.1.0-blueviolet.svg)](https://crates.io/crates/matbox)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/anomalyco/matbox/actions)
+[![Tests](https://img.shields.io/badge/tests-437%20passing-brightgreen.svg)](https://github.com/anomalyco/matbox)
+[![Language](https://img.shields.io/badge/language-.mbox-success.svg)](docs/language.md)
+[![Stars](https://img.shields.io/github/stars/anomalyco/matbox?style=social)](https://github.com/anomalyco/matbox)
+
+---
+
+## Overview
+
+MATBOX is a fully independent, ground-up reimplementation of the MATLAB
+language and runtime. The **compute engine is 100% Rust** — no Python, no
+C++, no C. Every number is a complex-valued N-dimensional array, every
+operation is vectorized, and every function matches MATLAB semantics.
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────┐
+│            matbox-cli (REPL / runner)         │
+├──────────────────────────────────────────────┤
+│              matbox-lsp (LSP server)          │
+├──────────────────────────────────────────────┤
+│           matbox-core (Engine + Parser)       │
+├──────────────────────────────────────────────┤
+│           matbox-math (Linear Algebra)        │
+├──────────────────────────────────────────────┤
+│  matbox-graphics  │  matbox-sim  │  matbox-ffi│
+└──────────────────────────────────────────────┘
+```
+
+| Crate | Description |
+|-------|-------------|
+| `matbox-core` | Lexer, parser, AST, interpreter, builtins (325+ tests) |
+| `matbox-math` | Column-major `MxArray`, LAPACK-free linalg (QR, eig, SVD, LU, Cholesky) |
+| `matbox-cli` | REPL and script runner |
+| `matbox-lsp` | Language Server Protocol implementation |
+| `matbox-graphics` | WebGL/Canvas plotting backend |
+| `matbox-sim` | Simulink-like block diagram solver |
+| `matbox-ffi` | C FFI for embedding (`matbox.h`) |
+
+---
+
+## Quick Start
+
+### Installation
+
+```bash
+git clone https://github.com/your-org/matbox
+cd matbox
+cargo build --release
+```
+
+### REPL
+
+```bash
+cargo run --release
+>> x = [1 2 3; 4 5 6]
+>> sin(x)
+>> disp('Hello, MATBOX!')
+>> exit
+```
+
+### Run a script
+
+```bash
+cargo run --release -- run examples/demo.mbox
+```
+
+### Check syntax
+
+```bash
+cargo run --release -- check myscript.mbox
+```
+
+---
+
+## Language
+
+MATBOX uses the `.mbox` file extension. The language is a superset of MATLAB:
+
+### Hello World
+
+```matlab
+% hello.mbox
+disp('Hello, MATBOX!')
+```
+
+### Matrix Operations
+
+```matlab
+A = [1 2 3; 4 5 6]
+B = [7 8 9; 10 11 12]
+C = A * B             % matrix multiply
+D = A .* B            % element-wise multiply
+E = A'                % conjugate transpose
+```
+
+### Functions
+
+```matlab
+function result = fib(n)
+    if n <= 1
+        result = n
+    else
+        result = fib(n-1) + fib(n-2)
+    end
+end
+
+disp(fib(10))
+```
+
+### Anonymous Functions & Closures
+
+```matlab
+f = @(x) x^2
+f(5)              % 25
+
+adder = @(x) @(y) x + y
+add5 = adder(5)
+add5(3)           % 8 (closure captures x=5)
+```
+
+### Structs
+
+```matlab
+s = struct('name', 'MATBOX', 'version', 0.1)
+s.description = 'A MATLAB replica in Rust'
+disp(s.name)
+s.('version')     % dynamic field access
+```
+
+### Cell Arrays
+
+```matlab
+C = {1, 'hello', @sin}
+C{2}              % 'hello'
+C{3}(pi/2)        % 1.0
+cellfun(@(x) x^2, {1, 2, 3})
+```
+
+---
+
+## Language Features
+
+| Feature | Syntax | Status |
+|---------|--------|--------|
+| Matrix arithmetic | `+ - * / \\ ^ .* ./ .^ .\\` | ✅ |
+| Conjugate transpose | `A'` | ✅ |
+| Non-conjugate transpose | `A.'` | ✅ |
+| Broadcasting | scalar + matrix, row + col | ✅ |
+| Colon ranges | `1:10`, `1:2:10`, `end-1:end` | ✅ |
+| Relational | `== ~= < <= > >=` | ✅ |
+| Logical | `& \| ~ && \|\|` | ✅ |
+| Control flow | `if/elseif/else/end` | ✅ |
+| Loops | `for/end`, `while/end`, `break`, `continue` | ✅ |
+| Switch | `switch/case/otherwise/end` + cell patterns `case {1,2,3}` | ✅ |
+| Try/catch | `try/catch/end` | ✅ |
+| Functions | `function [a,b] = name(x,y)/end` | ✅ |
+| `endfunction` | MATBOX extension for function terminators | ✅ |
+| `varargin` / `varargout` | Variable-length argument lists | ✅ |
+| `persistent` | Persistent variables inside functions | ✅ |
+| `global` | Global variable sharing | ✅ |
+| `parfor` | Parallel for loop (sequential fallback) | ✅ |
+| Anonymous functions | `@(x) x^2` | ✅ |
+| Closures | `@(x) @(y) x+y` (free variable capture) | ✅ |
+| Function handles | `@sin`, `@cos`, `f = @(x) x^2; f(3)` | ✅ |
+| Structs | `s.field`, `s.('dynamic')`, `struct()` | ✅ |
+| Cell arrays | `{1, 'hello', @sin}`, brace indexing `C{1}` | ✅ |
+| Multi-output | `[a, b] = func(x)` | ✅ |
+| Double-quoted strings | `"hello"` (MATBOX extension) | ✅ |
+| `#` comments | MATBOX extension | ✅ |
+| `**` power operator | `2 ** 3` (MATBOX extension) | ✅ |
+| `%{...%}` block comments | Multi-line comment blocks | ✅ |
+| Line continuation | `A = [1 2 3; ...` | ✅ |
+| LSP server | Completions, diagnostics, hover | ✅ |
+
+## Built-in Functions (180+)
+
+| Category | Functions |
+|----------|-----------|
+| **Trigonometry** | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` |
+| **Exponentials** | `exp`, `log`, `log10`, `log2`, `sqrt`, `abs`, `angle`, `conj`, `real`, `imag` |
+| **Rounding** | `floor`, `ceil`, `round`, `fix`, `sign`, `mod`, `rem` |
+| **Special Math** | `erf`, `erfc`, `erfinv`, `gamma`, `gammaln` |
+| **Array** | `length`, `size`, `numel`, `ndims`, `sum`, `prod`, `mean`, `median`, `mode`, `std`, `var`, `min`, `max`, `any`, `all`, `cumsum`, `cumprod`, `diff`, `sort`, `unique`, `flip`, `fliplr`, `flipud`, `reshape`, `repmat`, `kron`, `diag`, `find`, `linspace`, `logspace`, `colon`, `meshgrid` |
+| **Linear Algebra** | `inv`, `det`, `rank`, `trace`, `norm`, `lu`, `qr`, `chol`, `eig`, `svd`, `pinv` |
+| **Matrix Creation** | `zeros`, `ones`, `eye`, `rand`, `randn`, `randi`, `randperm`, `magic` |
+| **Polynomials** | `polyval`, `poly`, `roots`, `polyfit` |
+| **Set Operations** | `intersect`, `setdiff`, `setxor`, `union`, `ismember`, `issorted` |
+| **Correlation** | `corrcoef`, `cov` |
+| **Fourier / Signal** | `fft`, `ifft`, `fftshift`, `ifftshift`, `conv`, `filter` |
+| **Numerical** | `fzero`, `trapz`, `integral` |
+| **Strings** | `strcmp`, `strcmpi`, `upper`, `lower`, `strtrim`, `deblank`, `strsplit`, `strjoin`, `sprintf`, `contains`, `startsWith`, `endsWith`, `num2str`, `int2str`, `str2double`, `strfind`, `strrep`, `regexp`, `regexpi`, `regexprep` |
+| **Cell** | `cellfun`, `num2cell`, `cell2mat`, `mat2cell`, `cell2struct`, `struct2cell`, `cellstr` |
+| **Type** | `ischar`, `islogical`, `isnumeric`, `isreal`, `isscalar`, `isvector`, `isrow`, `iscolumn`, `ismatrix`, `isempty`, `iscell`, `isstruct`, `isinf`, `isnan`, `isfinite`, `isa`, `double`, `single`, `char` |
+| **Integer Types** | `int8`, `uint8`, `int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64` |
+| **Execution** | `eval`, `evalc` |
+| **File System** | `pwd`, `ls`, `dir` |
+| **Graphics (stubs)** | `figure`, `plot`, `hold`, `subplot`, `xlabel`, `ylabel`, `title`, `grid`, `legend`, `axis`, `bar`, `histogram`, `scatter` |
+| **Utilities** | `disp`, `error`, `warning`, `who`, `clear`, `exist`, `format`, `run`, `help`, `struct`, `isfield`, `fieldnames`, `rmfield`, `orderfields`, `deal`, `feval`, `isequal`, `isequaln`, `cat`, `tic`, `toc`, `input`, `clc`, `pause` |
+| **Introspection** | `nargin`, `nargout`, `varargin`, `varargout` |
+
+---
+
+## Language Server
+
+MATBOX includes a built-in LSP server for IDE integration.
+
+```bash
+cargo run --release -- lsp
+```
+
+Configure your editor to use `matbox lsp` as the language server for `.mbox` files.
+
+### VSCode
+
+Install the **"LSP"** extension (`d0x.assistant-lsp`) or **"vscode-lsp"** from the marketplace, then create `.vscode/settings.json`:
+
+```json
+{
+  "LSP.languageServers": [
+    {
+      "name": "matbox",
+      "command": ["/path/to/matbox", "lsp"],
+      "filetypes": [".mbox"]
+    }
+  ],
+  "files.associations": {
+    "*.mbox": "matlab"
+  }
+}
+```
+
+Replace `/path/to/matbox` with the absolute path to the compiled binary (`target/release/matbox` after running `cargo build --release`).
+
+### Neovim (vim-lsp)
+
+```vim
+if executable('matbox')
+    augroup LspMatbox
+        autocmd!
+        autocmd User lsp_setup call lsp#register_server({
+            \ 'name': 'matbox',
+            \ 'cmd': {server_info->['matbox', 'lsp']},
+            \ 'whitelist': ['mbox'],
+            \ })
+    augroup END
+endif
+```
+
+---
+
+## Project Status
+
+| Feature | Status |
+|---------|--------|
+| Scalar/Matrix arithmetic | ✅ |
+| Linear algebra (eig, QR, SVD, LU, Cholesky) | ✅ |
+| Control flow (if/else/for/while/switch/try) | ✅ |
+| Function definitions (incl. `varargin`/`varargout`) | ✅ |
+| Anonymous functions, closures, function handles | ✅ |
+| `persistent` / `global` / `parfor` | ✅ |
+| Structs & dynamic field access | ✅ |
+| Cell arrays & conversion functions | ✅ |
+| String operations (incl. regex) | ✅ |
+| Set operations | ✅ |
+| Statistics (std, var, median, mode, corrcoef, cov) | ✅ |
+| Signal processing (FFT, conv, filter) | ✅ |
+| Polynomials (polyval, roots, polyfit) | ✅ |
+| Numerical methods (fzero, trapz, integral) | ✅ |
+| Special functions (erf, erfc, gamma) | ✅ |
+| Type conversion (double, char, integer types) | ✅ |
+| Execution (eval, evalc) | ✅ |
+| File system (pwd, ls, dir) | ✅ |
+| Graphics stubs (plot, figure, subplot, etc.) | ✅ |
+| 180+ built-in functions | ✅ |
+| LSP server (completions, diagnostics, hover) | ✅ |
+| MATBOX extensions (`#`, `**`, `endfunction`, `"strings"`) | ✅ |
+| Block comments `%{...%}` | ✅ |
+| Graphics engine | 🚧 In progress |
+| Simulink solver | 🚧 In progress |
+| Python bindings | 🚧 In progress |
+| Tauri desktop app | 🚧 In progress |
+| Web (TypeScript) engine | 📋 Planned |
+
+---
+
+## Development
+
+### Running tests
+
+```bash
+cargo test              # all tests (437+)
+cargo test -p matbox-core   # core tests only
+cargo test -p matbox-math   # math tests only
+```
+
+### Code style
+
+```bash
+cargo fmt
+cargo clippy
+```
+
+### Adding a builtin
+
+Builtins are defined in `crates/matbox-core/src/builtins.rs`.
+Each builtin is a match arm in the `call()` function. Add the function name
+and implementation, then add tests in `crates/matbox-core/src/eval.rs`.
+
+---
+
+## License
+
+Apache 2.0
