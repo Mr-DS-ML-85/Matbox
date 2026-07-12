@@ -10,7 +10,7 @@
  |_|  |_|\__,_|_|____(_)_|\_\
 ```
 
-[![License](https://img.shields.io/badge/license-AGPLv3%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 [![Version](https://img.shields.io/badge/version-0.1.0-blueviolet.svg)](https://crates.io/crates/matbox)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/anomalyco/matbox/actions)
@@ -393,6 +393,7 @@ If you create a modified or forked version, you must use a different project nam
 
 This policy is intended to protect users from confusion and preserve the identity of the official MATBOX project.
 
+The source code is licensed under AGPL-3.0, but the MATBOX name and logo may not be used for modified or redistributed versions without permission. See `TRADEMARKS.md` for details.
 
 ## License
 
