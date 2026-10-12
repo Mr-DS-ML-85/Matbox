@@ -145,7 +145,7 @@ fn version() {
     println!("MATBOX v{}", env!("CARGO_PKG_VERSION"));
     println!("Language: MATBOX .mbox (MATLAB-compatible)");
     println!("Engine:   Rust (pure, no Python/C/C++)");
-    println!("License:  Apache 2.0");
+    println!("License:  AGPL-3.0-or-later");
 }
 
 fn lsp() {

@@ -1563,11 +1563,11 @@ fn erf_approx(x: f64) -> f64 {
 
 fn gamma_func(x: f64) -> f64 {
     // Lanczos approximation for Gamma function
-    if x <= 0.0 && x == x.trunc() { return std::f64::NAN; }
+    if x <= 0.0 && x == x.trunc() { return f64::NAN; }
     if x < 0.5 {
         let pi = std::f64::consts::PI;
         let sin_pi_x = (pi * x).sin();
-        if sin_pi_x.abs() < 1e-15 { return std::f64::NAN; }
+        if sin_pi_x.abs() < 1e-15 { return f64::NAN; }
         return pi / (sin_pi_x * gamma_func(1.0 - x));
     }
     let g = 7.0;

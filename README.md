@@ -13,10 +13,10 @@
 [![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 [![Version](https://img.shields.io/badge/version-0.1.0-blueviolet.svg)](https://crates.io/crates/matbox)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/anomalyco/matbox/actions)
-[![Tests](https://img.shields.io/badge/tests-437%20passing-brightgreen.svg)](https://github.com/anomalyco/matbox)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/Mr-DS-ML-85/Matbox/actions)
+[![Tests](https://img.shields.io/badge/tests-437%20passing-brightgreen.svg)](https://github.com/Mr-DS-ML-85/Matbox)
 [![Language](https://img.shields.io/badge/language-.mbox-success.svg)](docs/language.md)
-[![Stars](https://img.shields.io/github/stars/anomalyco/matbox?style=social)](https://github.com/anomalyco/matbox)
+[![Stars](https://img.shields.io/github/stars/Mr-DS-ML-85/Matbox?style=social)](https://github.com/Mr-DS-ML-85/Matbox)
 
 ---
 
