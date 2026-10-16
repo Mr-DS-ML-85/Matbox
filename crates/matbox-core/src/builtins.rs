@@ -88,6 +88,27 @@ fn trim_zeros(s: &str) -> String {
     t.trim_end_matches('.').to_string()
 }
 
+/// Number as text, matching how `mat2str` renders one: no column padding,
+/// since padding is layout rather than part of the value, and the same
+/// non-finite spellings used when printing.
+fn number_text(v: f64) -> String {
+    if v.is_nan() { return "NaN".into(); }
+    if v.is_infinite() { return if v < 0.0 { "-Inf".into() } else { "Inf".into() }; }
+    format!("{}", v)
+}
+
+/// Text form of a value for data conversion. Unlike `format_value` this must not
+/// pad numbers for column alignment, so a numeric cell inside a converted cell
+/// array yields its digits rather than a padded display field.
+fn value_to_text(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Str(g) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
+        Value::Array(a) if a.numel() == 1 => number_text(a.to_scalar()),
+        other => format_value(other),
+    }
+}
+
 /// Name of the value's type as MATBOX reports it from `class`. Numbers are
 /// distinguished by their storage, so a logical array does not report as
 /// `double`.
@@ -1148,26 +1169,27 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             match &args[0] {
                 Value::Str(_) => Ok(args[0].clone()),
                 Value::String(s) => Ok(Value::Str(vec![vec![s.clone()]])),
-                Value::Array(a) if a.is_scalar() => Ok(Value::Str(vec![vec![format!("{}", a.to_scalar())]])),
+                Value::Array(a) if a.is_scalar() => Ok(Value::Str(vec![vec![number_text(a.to_scalar())]])),
                 Value::Array(a) => {
                     let m = a.shape[0];
                     let nn = a.shape.get(1).copied().unwrap_or(1);
                     let mut rows = vec![vec![String::new(); nn]; m];
-                    for i in 0..m { for j in 0..nn { rows[i][j] = format!("{}", a.get_double(&[i, j])); } }
+                    for i in 0..m { for j in 0..nn { rows[i][j] = number_text(a.get_double(&[i, j])); } }
                     Ok(Value::Str(rows))
                 }
                 Value::Cell(rows) => {
-                    let out: Vec<Vec<String>> = rows.iter().map(|r| r.iter().map(|v| match v {
-                        Value::String(s) => s.clone(),
-                        Value::Str(g) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
-                        other => format_value(other),
-                    }).collect()).collect();
+                    let out: Vec<Vec<String>> = rows.iter().map(|r| r.iter().map(value_to_text).collect()).collect();
                     Ok(Value::Str(out))
                 }
-                other => Ok(Value::Str(vec![vec![format_value(other)]])),
+                other => Ok(Value::Str(vec![vec![value_to_text(other)]])),
             }
         }
         // ── containers.Map ──
+        // The entry count is reachable both as `m.Count` and as `Count(m)`.
+        "Count" => {
+            let m = match args.first() { Some(Value::Map(entries)) => entries, _ => return Err(EngineError::Msg("Count: argument must be a containers.Map".into())) };
+            Ok(Value::Array(MxArray::scalar_double(m.len() as f64)))
+        }
         "keys" => {
             let m = match &args[0] { Value::Map(entries) => entries, _ => return Err(EngineError::Msg("keys: argument must be a containers.Map".into())) };
             Ok(Value::Cell(vec![m.iter().map(|(k, _)| k.clone()).collect()]))
@@ -2471,10 +2493,12 @@ mod tests {
         e.eval(src).unwrap().unwrap_or_else(|| panic!("no value produced by: {src}"))
     }
 
-    /// Evaluate a snippet that yields text.
+    /// Evaluate a snippet that yields text, accepting either text type: the char
+    /// row vector or a scalar of the string type.
     fn text(src: &str) -> String {
         match eval1(src) {
             Value::String(s) => s,
+            Value::Str(g) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
             other => panic!("expected text from {src}, got {other:?}"),
         }
     }
@@ -2710,6 +2734,28 @@ mod tests {
         assert_eq!(call("int8", &[arr(-300.0)], &mut e).unwrap().as_array().to_scalar(), -128.0);
     }
 
+    /// Text of a value read back out of an engine that already has state.
+    fn text_of(e: &mut Engine, src: &str) -> String {
+        match e.eval(src).unwrap().unwrap() {
+            Value::String(s) => s,
+            other => panic!("expected text from {src}, got {other:?}"),
+        }
+    }
+
+    /// Evaluate a snippet that is expected to fail, returning the message.
+    fn err_of(src: &str) -> String {
+        let mut e = Engine::new();
+        match e.eval(src) {
+            Err(msg) => msg.to_string(),
+            Ok(_) => panic!("expected an error from: {src}"),
+        }
+    }
+
+    /// Values produced by a snippet, flattened in column-major order.
+    fn vals_of(src: &str) -> Vec<f64> {
+        nums(&eval1(src))
+    }
+
     // --- logical type is preserved by concatenation ---
 
     #[test]
@@ -2718,5 +2764,113 @@ mod tests {
         assert_eq!(class_of("[true; false]"), "logical");
         // mixing with a number widens back to numeric
         assert_eq!(class_of("[true 1]"), "double");
+    }
+
+    // --- indexed assignment keeps the element class ---
+
+    #[test]
+    fn growing_a_logical_vector_stays_logical() {
+        assert_eq!(class_of("[true false]"), "logical");
+        let mut e = Engine::new();
+        e.eval("x = [true false]; x(4) = true;").unwrap();
+        assert_eq!(text_of(&mut e, "class(x)"), "logical");
+        let got = e.eval("x").unwrap().unwrap();
+        // the original elements survive, and the new ones are false
+        assert_eq!(got.as_array().to_double_vec(), vec![1.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn growing_a_logical_matrix_keeps_its_data() {
+        let mut e = Engine::new();
+        let got = e.eval("M = [true false; false true]; M(3,3) = true; M").unwrap().unwrap();
+        assert_eq!(class_name(&got), "logical");
+        assert_eq!(
+            got.as_array().to_double_vec(),
+            vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        );
+    }
+
+    // --- division shapes that must not read past a buffer ---
+
+    #[test]
+    fn dividing_by_a_scalar_is_elementwise() {
+        assert_eq!(vals_of("[1 2 3] / 2"), vec![0.5, 1.0, 1.5]);
+        assert_eq!(vals_of("2 \\ [1 2 3]"), vec![0.5, 1.0, 1.5]);
+    }
+
+    #[test]
+    fn solving_with_a_scalar_rhs_uses_the_right_height() {
+        // A \ 1 solves for a column of A's height rather than indexing a 1x1.
+        assert_eq!(vals_of("[1 2; 3 4] \\ 1"), vec![-1.0, 1.0]);
+        let got = vals_of("[4 7; 2 6] \\ [2; 3]");
+        assert!((got[0] + 0.9).abs() < 1e-12, "got {got:?}");
+        assert!((got[1] - 0.8).abs() < 1e-12, "got {got:?}");
+    }
+
+    #[test]
+    fn a_non_square_left_division_is_reported_not_panicked() {
+        assert!(err_of("[1 2] \\ 1").contains("square"));
+        assert!(err_of("[2 0; 0 2] \\ [1 2]").contains("rows"));
+    }
+
+    #[test]
+    fn out_of_range_cell_indexing_is_reported_not_panicked() {
+        assert!(err_of("c = {1,2}; c{5}").contains("out of range"));
+        assert!(err_of("c = {}; c{1}").contains("empty"));
+    }
+
+    // --- string conversion uses data text, not display text ---
+
+    #[test]
+    fn string_of_a_number_has_no_column_padding() {
+        // The display formatter pads for alignment; converting data must not.
+        let got = eval1("string({1, 2})");
+        assert_eq!(format_value(&got), "[\"1\" \"2\"]");
+        assert_eq!(text("string(1/0)"), "Inf");
+        assert_eq!(text("string(0/0)"), "NaN");
+    }
+
+    // --- containers.Map ---
+
+    #[test]
+    fn count_is_available_as_a_function_and_a_property() {
+        let mut e = Engine::new();
+        e.eval("m = containers.Map(); m('a') = 1;").unwrap();
+        assert_eq!(e.eval("m.Count").unwrap().unwrap().to_scalar(), 1.0);
+        assert_eq!(e.eval("Count(m)").unwrap().unwrap().to_scalar(), 1.0);
+    }
+
+    #[test]
+    fn key_and_value_type_options_are_not_stored_as_entries() {
+        // Typing options pin the types up front; they must not become entries.
+        let mut e = Engine::new();
+        e.eval("m = containers.Map('KeyType','char','ValueType','double'); m('a') = 1;").unwrap();
+        let n = e.eval("m.Count").unwrap().unwrap();
+        assert_eq!(n.to_scalar(), 1.0);
+    }
+
+    #[test]
+    fn map_options_are_skipped_after_the_key_value_pair() {
+        let mut e = Engine::new();
+        e.eval("m = containers.Map({'a'}, {'x'}, 'KeyType', 'char');").unwrap();
+        assert_eq!(e.eval("m.Count").unwrap().unwrap().to_scalar(), 1.0);
+        assert_eq!(text_of(&mut e, "m('a')"), "x");
+    }
+
+    #[test]
+    fn count_rejects_a_non_map() {
+        assert!(err_of("Count(5)").contains("containers.Map"));
+    }
+
+    #[test]
+    fn dim_from_args_uses_the_argument_after_an_empty_placeholder() {
+        let a = MxArray::from_double_colmajor(vec![1.0, 2.0, 7.0, 3.0], &[2, 2]);
+        // Explicit axis wins when it is written directly...
+        assert_eq!(dim_from_args(&a, &[Value::Array(a.clone()), arr(2.0)], 1), 2);
+        // ...and an empty placeholder defers to the axis named after it.
+        let empty = Value::Array(MxArray::new_double(&[0, 0]));
+        assert_eq!(dim_from_args(&a, &[Value::Array(a.clone()), empty.clone(), arr(2.0)], 1), 2);
+        // With nothing after the placeholder, the default axis applies.
+        assert_eq!(dim_from_args(&a, &[Value::Array(a.clone()), empty], 1), 1);
     }
 }

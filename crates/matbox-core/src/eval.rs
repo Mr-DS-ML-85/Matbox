@@ -631,8 +631,13 @@ impl Engine {
                         let m = rows.len();
                         let n = if m > 0 { rows[0].len() } else { 0 };
                         let idx = self.resolve_indices_2d(m, n, indices)?;
-                        // return the cell content (unwrap one level)
-                        Ok(rows[idx.0][idx.1].clone())
+                        // Indexing past the end is a normal runtime error, not a
+                        // reason to take the process down.
+                        match rows.get(idx.0).and_then(|r| r.get(idx.1)) {
+                            Some(v) => Ok(v.clone()),
+                            None => Err(EngineError::Msg(
+                                "index out of range for cell array".into())),
+                        }
                     }
                     _ => Err(EngineError::Msg("brace indexing requires a cell array".into())),
                 }
@@ -965,23 +970,40 @@ impl Engine {
     }
 
     /// `containers.Map()` / `containers.Map(keys, values)`. `KeyType`/`ValueType`
-    /// name-value options are accepted (typing is inferred dynamically in
-    /// MATBOX rather than pinned up front) and simply yield an empty map.
+    /// name-value options pin the accepted types up front; MATBOX infers typing
+    /// from the first insert instead, so such pairs are accepted and skipped
+    /// rather than becoming entries.
     fn construct_containers_map(&mut self, indices: &[Expr]) -> Result<Value, EngineError> {
         if indices.is_empty() {
             return Ok(Value::Map(Vec::new()));
         }
-        let k = self.eval_expr(&indices[0])?;
-        if let Value::String(s) = &k {
-            if s.eq_ignore_ascii_case("KeyType") || s.eq_ignore_ascii_case("ValueType") {
-                return Ok(Value::Map(Vec::new()));
+        let all: Vec<Value> = indices.iter().map(|e| self.eval_expr(e)).collect::<Result<_, _>>()?;
+        let mut kept: Vec<Value> = Vec::with_capacity(all.len());
+        let mut i = 0usize;
+        while i < all.len() {
+            // The option name may be char or string, so go through text_arg
+            // rather than matching one Value variant.
+            let is_option = crate::eval::text_arg(&all[i])
+                .map(|t| t.eq_ignore_ascii_case("KeyType") || t.eq_ignore_ascii_case("ValueType"))
+                .unwrap_or(false);
+            if is_option {
+                // Skip the name and the value paired with it.
+                i += 2;
+                continue;
             }
+            kept.push(all[i].clone());
+            i += 1;
         }
-        let v_expr = indices.get(1).ok_or_else(|| EngineError::Msg(
-            "containers.Map: expected keys and values".into()))?;
-        let v = self.eval_expr(v_expr)?;
-        let keys = match &k { Value::Cell(rows) => flatten_row_major(rows), _ => vec![k] };
-        let vals = match &v { Value::Cell(rows) => flatten_row_major(rows), _ => vec![v] };
+        if kept.is_empty() {
+            return Ok(Value::Map(Vec::new()));
+        }
+        if kept.len() < 2 {
+            return Err(EngineError::Msg(
+                "containers.Map: expected keys and values".into()));
+        }
+        let (k, v) = (&kept[0], &kept[1]);
+        let keys = match k { Value::Cell(rows) => flatten_row_major(rows), _ => vec![k.clone()] };
+        let vals = match v { Value::Cell(rows) => flatten_row_major(rows), _ => vec![v.clone()] };
         if keys.len() != vals.len() {
             return Err(EngineError::Msg(
                 "containers.Map: number of keys and values must match".into()));
@@ -1336,6 +1358,11 @@ impl Engine {
     }
 
     fn resolve_indices_2d(&mut self, m: usize, n: usize, indices: &[Expr]) -> Result<(usize, usize), EngineError> {
+        if m == 0 || n == 0 {
+            // Nothing to index: report it here rather than dividing by a zero
+            // dimension when mapping a linear index onto rows and columns.
+            return Err(EngineError::Msg("index into an empty array".into()));
+        }
         if indices.len() == 1 {
             let e = replace_end(&indices[0], m * n);
             let v = self.eval_expr(&e)?;
@@ -1465,7 +1492,8 @@ impl Engine {
                     k += 1;
                 }
             }
-            return Ok(out);
+            // Growing a logical matrix keeps it logical.
+            return Ok(Self::to_logical_like(arr, out));
         }
         let selectors = self.resolve_selectors(arr, indices)?;
         let positions = selectors_to_linear(arr, &selectors);
@@ -1533,6 +1561,18 @@ impl Engine {
         Ok(MxArray::from_complex_colmajor(buf, &shape))
     }
 
+    /// Narrow a freshly built numeric array back to logical when the array it is
+    /// growing from was logical, so assigning past the end does not widen the
+    /// class. Built numeric and converted at the end because `set_complex` only
+    /// writes into numeric storage.
+    fn to_logical_like(orig: &MxArray, built: MxArray) -> MxArray {
+        if orig.is_logical_like() && !built.is_logical_like() {
+            let flags: Vec<bool> = built.iter_complex().iter().map(|c| c.norm() != 0.0).collect();
+            return MxArray::from_logical_colmajor(flags, &built.shape);
+        }
+        built
+    }
+
     fn grow_and_assign_linear(&self, arr: &MxArray, positions: &[usize], val: &MxArray) -> Result<MxArray, EngineError> {
         let new_len = positions.iter().cloned().max().unwrap_or(0) + 1;
         let m = arr.shape[0];
@@ -1543,7 +1583,10 @@ impl Engine {
             for (k, c) in arr.iter_complex().iter().enumerate() { buf[k] = *c; }
             for (k, &p) in positions.iter().enumerate() { buf[p] = val.iter_complex()[k.min(val.numel().saturating_sub(1))]; }
             let shape = if as_row { vec![1, new_len] } else { vec![new_len, 1] };
-            return Ok(MxArray::from_complex_colmajor(buf, &shape));
+            // The zero-filled region takes the class of the array being grown,
+            // so extending a logical vector yields logical false rather than a
+            // silent widening to double.
+            return Ok(Self::to_logical_like(arr, MxArray::from_complex_colmajor(buf, &shape)));
         }
         Err(EngineError::Msg("unable to grow a non-vector array via linear indexing".into()))
     }
@@ -1551,6 +1594,12 @@ impl Engine {
     fn mrdivide(&self, a: &MxArray, b: &MxArray) -> Result<MxArray, EngineError> {
         if a.is_scalar() && b.is_scalar() {
             return Ok(MxArray::scalar_double(a.to_scalar() / b.to_scalar()));
+        }
+        // Dividing by a scalar scales every element; it is not a linear solve,
+        // and handing it to solve would be rejected on shape.
+        if b.is_scalar() {
+            let d = b.get_complex(&[]);
+            return Ok(unary_elementwise(a, |c| c / d));
         }
         let bt = b.transpose();
         let at = a.transpose();
@@ -1562,7 +1611,22 @@ impl Engine {
         if a.is_scalar() && b.is_scalar() {
             return Ok(MxArray::scalar_double(b.to_scalar() / a.to_scalar()));
         }
-        matbox_math::solve(a, b).map_err(conv)
+        // `2 \ A` divides every element by the scalar; like the mirror case
+        // this is element-wise rather than a solve with a 1-row matrix.
+        if a.is_scalar() {
+            let d = a.get_complex(&[]);
+            return Ok(unary_elementwise(b, |c| c / d));
+        }
+        // `A \ 1` means "solve for a column of A's height": the solver reads the
+        // right-hand side one row at a time, so a 1x1 right-hand side would be
+        // indexed past its single element.
+        let rhs = if b.is_scalar() {
+            let m = a.shape[0];
+            MxArray::from_complex_colmajor(vec![b.get_complex(&[]); m], &[m, 1])
+        } else {
+            b.clone()
+        };
+        matbox_math::solve(a, &rhs).map_err(conv)
     }
 
     fn matrix_pow(&self, a: &MxArray, b: &MxArray) -> Result<MxArray, EngineError> {

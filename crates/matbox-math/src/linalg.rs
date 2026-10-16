@@ -155,15 +155,36 @@ pub fn rank(a: &MxArray, tol: f64) -> usize {
 
 /// Solve A x = B (B may be multiple RHS columns). Returns X.
 pub fn solve(a: &MxArray, b: &MxArray) -> Result<MxArray, MathError> {
-    let (l, u, piv) = lu(a)?;
     let m = a.shape[0];
     let n = a.shape.get(1).copied().unwrap_or(1);
-    let nrhs = b.shape.get(1).copied().unwrap_or(1);
+    // Shape validation up front: the substitution loops below index A, B and
+    // the unknown vector by these extents, so a non-square or mismatched system
+    // has to be rejected rather than read past the end of a buffer.
+    if m != n {
+        return Err(MathError::Msg("solve: matrix must be square".into()));
+    }
+    if m == 0 {
+        return Err(MathError::Msg("solve: matrix must not be empty".into()));
+    }
+    // B supplies one right-hand side per column, except for a plain vector,
+    // which is a single column of m rows.
+    let b_is_vec = b.shape.len() <= 1 || (b.shape.len() == 2 && b.shape.iter().skip(1).all(|&s| s == 1));
+    let b_rows = b.shape[0];
+    let nrhs = if b_is_vec { 1 } else { b.shape.get(1).copied().unwrap_or(1) };
+    if b_rows != m {
+        return Err(MathError::Msg(
+            "solve: right-hand side must have as many rows as the matrix".into()));
+    }
+    // Read one right-hand side at a time as a column of m entries.
+    let rhs_at = |r: usize, i: usize| -> Complex64 {
+        if b_is_vec { b.get_complex(&[i]) } else { b.get_complex(&[i, r]) }
+    };
+    let (l, u, piv) = lu(a)?;
     let mut x = vec![vec![Complex64::new(0.0, 0.0); nrhs]; n];
     for r in 0..nrhs {
         // permute b
         let mut pb = vec![Complex64::new(0.0, 0.0); m];
-        for i in 0..m { pb[i] = b.get_complex(&[piv[i], r]); }
+        for i in 0..m { pb[i] = rhs_at(r, piv[i]); }
         // forward substitute L y = pb
         let mut y = vec![Complex64::new(0.0, 0.0); m];
         for i in 0..m {

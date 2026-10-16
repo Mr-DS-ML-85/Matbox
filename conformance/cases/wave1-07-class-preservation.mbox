@@ -1,0 +1,39 @@
+% Growing an array past its end keeps the class it already had, so a logical
+% array grows logical false rather than silently becoming numeric.
+x = [true false];
+x(4) = true;
+disp(class(x));
+disp(x);
+
+% The same holds in two dimensions, and the original data is preserved.
+M = [true false; false true];
+M(3,3) = true;
+disp(class(M));
+disp(M);
+
+% Converting data to text must not inherit the padding used for column
+% alignment when values are printed, and non-finite numbers take their
+% canonical spellings.
+disp(string({1, 2}));
+disp(string(1/0));
+disp(string(0/0));
+
+% A map's entry count is reachable both as a property and as a function.
+m = containers.Map({'a','b'}, {1,2});
+disp(m.Count);
+disp(Count(m));
+
+% Typing options pin the types up front and are not themselves entries.
+n = containers.Map('KeyType', 'char', 'ValueType', 'double');
+n('k') = 5;
+disp(n.Count);
+
+% Dividing by a scalar scales every element; it is not a linear solve.
+disp([1 2 3] / 2);
+disp(2 \ [1 2 3]);
+
+% Solving with a scalar right-hand side treats it as a column of the right
+% height rather than as a single stored element.
+A = [4 7; 2 6];
+disp(A \ [2; 3]);
+disp(A \ 1);
