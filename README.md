@@ -153,6 +153,34 @@ C{3}(pi/2)        % 1.0
 cellfun(@(x) x^2, {1, 2, 3})
 ```
 
+### Strings & Maps
+
+```matlab
+% "text" is a string scalar; 'text' is a char row vector
+"ab" + "cd"              % 'abcd'
+strlength("hello")       % 5
+["ab" "cd"]              % string array, two elements
+class("hi")              % 'string'
+
+m = containers.Map();
+m('a') = 1;
+m('b') = 2;
+m.Count                  % 2
+keys(m)                  % {'a','b'}
+isKey(m, 'a')            % 1
+```
+
+### Errors
+
+```matlab
+try
+    error('id:tool:badinput', 'value must be positive');
+catch err
+    disp(err.message);      % value must be positive
+    disp(err.identifier);   % id:tool:badinput
+end
+```
+
 ---
 
 ## Language Features
@@ -182,14 +210,23 @@ cellfun(@(x) x^2, {1, 2, 3})
 | Structs | `s.field`, `s.('dynamic')`, `struct()` | ✅ |
 | Cell arrays | `{1, 'hello', @sin}`, brace indexing `C{1}` | ✅ |
 | Multi-output | `[a, b] = func(x)` | ✅ |
+| Multi-output builtins | `[m, i] = max(x)`, `[s, p] = sort(x)`, `[r, c] = find(x)` | ✅ |
+| Auto-growing assignment | `v(end+1) = 9`, `v(10) = 1`, `M(3,3) = 9` | ✅ |
+| Element deletion | `A(2) = []`, `A(:) = []` | ✅ |
+| Dimension placeholder | `max(A, [], 2)` — axis named after `[]` | ✅ |
 | Double-quoted strings | `"hello"` (MATBOX extension) | ✅ |
+| String operations | `+` appends, `strlength`, `string`, `mat2str` | ✅ |
+| `containers.Map` | `containers.Map`, `m(k)`, `keys`, `isKey`, `Count` | ✅ |
+| Exception identifiers | `error('id:x', 'msg')`, `err.message`, `err.identifier`, `rethrow` | ✅ |
+| `class` | Type name of any value, incl. `'logical'`, `'string'`, `'map'` | ✅ |
+| `fprintf` | Formatted output to stdout/stderr | ✅ |
 | `#` comments | MATBOX extension | ✅ |
 | `**` power operator | `2 ** 3` (MATBOX extension) | ✅ |
 | `%{...%}` block comments | Multi-line comment blocks | ✅ |
 | Line continuation | `A = [1 2 3; ...` | ✅ |
 | LSP server | Completions, diagnostics, hover | ✅ |
 
-## Built-in Functions (180+)
+## Built-in Functions (220+)
 
 | Category | Functions |
 |----------|-----------|
@@ -205,14 +242,15 @@ cellfun(@(x) x^2, {1, 2, 3})
 | **Correlation** | `corrcoef`, `cov` |
 | **Fourier / Signal** | `fft`, `ifft`, `fftshift`, `ifftshift`, `conv`, `filter` |
 | **Numerical** | `fzero`, `trapz`, `integral` |
-| **Strings** | `strcmp`, `strcmpi`, `upper`, `lower`, `strtrim`, `deblank`, `strsplit`, `strjoin`, `sprintf`, `contains`, `startsWith`, `endsWith`, `num2str`, `int2str`, `str2double`, `strfind`, `strrep`, `regexp`, `regexpi`, `regexprep` |
+| **Strings** | `strcmp`, `strcmpi`, `upper`, `lower`, `strtrim`, `deblank`, `strsplit`, `strjoin`, `sprintf`, `fprintf`, `contains`, `startsWith`, `endsWith`, `num2str`, `int2str`, `str2double`, `strfind`, `strrep`, `regexp`, `regexpi`, `regexprep`, `string`, `strlength`, `mat2str` |
 | **Cell** | `cellfun`, `num2cell`, `cell2mat`, `mat2cell`, `cell2struct`, `struct2cell`, `cellstr` |
-| **Type** | `ischar`, `islogical`, `isnumeric`, `isreal`, `isscalar`, `isvector`, `isrow`, `iscolumn`, `ismatrix`, `isempty`, `iscell`, `isstruct`, `isinf`, `isnan`, `isfinite`, `isa`, `double`, `single`, `char` |
-| **Integer Types** | `int8`, `uint8`, `int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64` |
+| **Type** | `ischar`, `islogical`, `isnumeric`, `isreal`, `isscalar`, `isvector`, `isrow`, `iscolumn`, `ismatrix`, `isempty`, `iscell`, `isstruct`, `isinf`, `isnan`, `isfinite`, `isa`, `class`, `double`, `single`, `char` |
+| **Integer Types** | `int8`, `uint8`, `int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64`, `idivide` |
+| **Maps** | `containers.Map`, `keys`, `values`, `isKey`, `remove`, `Count` |
 | **Execution** | `eval`, `evalc` |
 | **File System** | `pwd`, `ls`, `dir` |
 | **Graphics (stubs)** | `figure`, `plot`, `hold`, `subplot`, `xlabel`, `ylabel`, `title`, `grid`, `legend`, `axis`, `bar`, `histogram`, `scatter` |
-| **Utilities** | `disp`, `error`, `warning`, `who`, `clear`, `exist`, `format`, `run`, `help`, `struct`, `isfield`, `fieldnames`, `rmfield`, `orderfields`, `deal`, `feval`, `isequal`, `isequaln`, `cat`, `tic`, `toc`, `input`, `clc`, `pause` |
+| **Utilities** | `disp`, `error`, `warning`, `rethrow`, `who`, `clear`, `exist`, `format`, `run`, `help`, `struct`, `isfield`, `fieldnames`, `rmfield`, `orderfields`, `deal`, `feval`, `isequal`, `isequaln`, `cat`, `tic`, `toc`, `input`, `clc`, `pause` |
 | **Introspection** | `nargin`, `nargout`, `varargin`, `varargout` |
 
 ---
@@ -278,6 +316,9 @@ endif
 | Structs & dynamic field access | ✅ |
 | Cell arrays & conversion functions | ✅ |
 | String operations (incl. regex) | ✅ |
+| `containers.Map` keyed maps | ✅ |
+| Exception identifiers (`error`/`catch`/`rethrow`) | ✅ |
+| Auto-growing and deleting indexed assignment | ✅ |
 | Set operations | ✅ |
 | Statistics (std, var, median, mode, corrcoef, cov) | ✅ |
 | Signal processing (FFT, conv, filter) | ✅ |
@@ -288,8 +329,9 @@ endif
 | Execution (eval, evalc) | ✅ |
 | File system (pwd, ls, dir) | ✅ |
 | Graphics stubs (plot, figure, subplot, etc.) | ✅ |
-| 180+ built-in functions | ✅ |
+| 220+ built-in functions | ✅ |
 | LSP server (completions, diagnostics, hover) | ✅ |
+| Conformance suite (`conformance/`, 15 cases) | ✅ |
 | MATBOX extensions (`#`, `**`, `endfunction`, `"strings"`) | ✅ |
 | Block comments `%{...%}` | ✅ |
 | Graphics engine | 🚧 In progress |
@@ -338,9 +380,23 @@ endif
 ### Running tests
 
 ```bash
-cargo test              # all tests (437+)
-cargo test -p matbox-core   # core tests only
-cargo test -p matbox-math   # math tests only
+cargo test                  # all tests (478)
+cargo test -p matbox-core   # core engine tests
+cargo test -p matbox-math   # math tests
+cargo test -p matbox-cli    # conformance suite
+```
+
+### Conformance suite
+
+`conformance/cases/*.mbox` holds one program per documented behavior, with the
+expected stdout recorded in `conformance/expected/*.txt`. The suite runs under
+`cargo test -p matbox-cli`, so CI fails if any behavior drifts.
+
+When a change is meant to alter recorded behavior, regenerate the expected
+files and read the diff before committing:
+
+```bash
+./scripts/update-expected.sh
 ```
 
 ### Code style

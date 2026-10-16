@@ -431,26 +431,28 @@ string  ::= 'hello', "world"</code></pre>
           <tbody>
             <tr><td><code>^</code> <code>**</code></td><td>120</td><td>right</td><td>matrix power</td></tr>
             <tr><td><code>.^</code></td><td>120</td><td>right</td><td>element-wise power</td></tr>
+            <tr><td>unary <code>+</code> <code>-</code></td><td>111</td><td>right</td><td>sign (looser than <code>^</code>, tighter than <code>*</code>)</td></tr>
             <tr><td><code>'</code></td><td>110</td><td>left</td><td>conjugate transpose</td></tr>
             <tr><td><code>.'</code></td><td>110</td><td>left</td><td>non-conjugate transpose</td></tr>
-            <tr><td><code>+</code> <code>-</code></td><td>100</td><td>left</td><td>unary plus/minus</td></tr>
-            <tr><td><code>.*</code></td><td>90</td><td>left</td><td>element-wise multiply</td></tr>
-            <tr><td><code>./</code></td><td>90</td><td>left</td><td>element-wise divide</td></tr>
-            <tr><td><code>.\</code></td><td>90</td><td>left</td><td>element-wise left-divide</td></tr>
-            <tr><td><code>*</code></td><td>80</td><td>left</td><td>matrix multiply</td></tr>
-            <tr><td><code>/</code></td><td>80</td><td>left</td><td>matrix divide</td></tr>
-            <tr><td><code>\</code></td><td>80</td><td>left</td><td>matrix left-divide</td></tr>
-            <tr><td><code>+</code> <code>-</code></td><td>60</td><td>left</td><td>addition/subtraction</td></tr>
-            <tr><td><code>:</code></td><td>20</td><td>left</td><td>colon range</td></tr>
-            <tr><td><code>&lt;</code> <code>&lt;=</code></td><td>10</td><td>left</td><td>relational</td></tr>
-            <tr><td><code>&gt;</code> <code>&gt;=</code></td><td>10</td><td>left</td><td>relational</td></tr>
-            <tr><td><code>==</code> <code>~=</code></td><td>10</td><td>left</td><td>equality</td></tr>
-            <tr><td><code>&amp;</code></td><td>5</td><td>left</td><td>logical AND</td></tr>
-            <tr><td><code>|</code></td><td>3</td><td>left</td><td>logical OR</td></tr>
-            <tr><td><code>&amp;&amp;</code></td><td>4</td><td>left</td><td>short-circuit AND</td></tr>
-            <tr><td><code>||</code></td><td>2</td><td>left</td><td>short-circuit OR</td></tr>
+            <tr><td><code>.*</code></td><td>110</td><td>left</td><td>element-wise multiply</td></tr>
+            <tr><td><code>./</code></td><td>110</td><td>left</td><td>element-wise divide</td></tr>
+            <tr><td><code>.\</code></td><td>110</td><td>left</td><td>element-wise left-divide</td></tr>
+            <tr><td><code>*</code></td><td>110</td><td>left</td><td>matrix multiply</td></tr>
+            <tr><td><code>/</code></td><td>110</td><td>left</td><td>matrix divide</td></tr>
+            <tr><td><code>\</code></td><td>110</td><td>left</td><td>matrix left-divide</td></tr>
+            <tr><td><code>+</code> <code>-</code></td><td>100</td><td>left</td><td>addition/subtraction</td></tr>
+            <tr><td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code> <code>==</code> <code>~=</code></td><td>80</td><td>left</td><td>relational</td></tr>
+            <tr><td><code>&amp;</code></td><td>70</td><td>left</td><td>logical AND</td></tr>
+            <tr><td><code>|</code></td><td>60</td><td>left</td><td>logical OR</td></tr>
+            <tr><td><code>&amp;&amp;</code></td><td>50</td><td>left</td><td>short-circuit AND</td></tr>
+            <tr><td><code>||</code></td><td>50</td><td>left</td><td>short-circuit OR</td></tr>
+            <tr><td><code>:</code></td><td>10</td><td>left</td><td>colon range</td></tr>
           </tbody>
         </table>
+        <p>A leading sign applies to the whole power, so <code>-2^2</code> is
+        <code>-(2^2)</code> and evaluates to <code>-4</code>. Use parentheses
+        (<code>(-2)^2</code> &rarr; <code>4</code>) to force the other grouping.
+        <code>~</code> binds tighter than every operator listed.</p>
 
         <h3>Punctuation</h3>
         <table>
@@ -477,15 +479,22 @@ string  ::= 'hello', "world"</code></pre>
         <table>
           <thead><tr><th>Type</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>Array</code></td><td>N-D complex-valued matrix (the universal type)</td></tr>
-            <tr><td><code>String</code></td><td>Character string</td></tr>
+            <tr><td><code>Array</code></td><td>N-D matrix (<code>MxArray</code>); storage is double, logical, complex or int64</td></tr>
+            <tr><td><code>String</code></td><td>Character row vector (<code>'text'</code>)</td></tr>
+            <tr><td><code>Str</code></td><td>String type (<code>"text"</code>) &mdash; a grid of text elements</td></tr>
             <tr><td><code>Cell</code></td><td>Heterogeneous array (<code>Vec&lt;Vec&lt;Value&gt;&gt;</code>)</td></tr>
             <tr><td><code>Struct</code></td><td>Field-value map (<code>HashMap&lt;String, Value&gt;</code>)</td></tr>
+            <tr><td><code>Map</code></td><td><code>containers.Map</code> &mdash; ordered key/value entries</td></tr>
             <tr><td><code>Func</code></td><td>Anonymous function handle (captured environment)</td></tr>
             <tr><td><code>FuncRef</code></td><td>Named function handle (<code>@sin</code>)</td></tr>
             <tr><td><code>Multi</code></td><td>Multi-output value container</td></tr>
           </tbody>
         </table>
+        <p>The char and string types are separate: <code>'ab'</code> is a
+        two-element char row vector while <code>"ab"</code> is a single string
+        element. Bracketing char arrays splices their characters, bracketing
+        strings builds a string array, and <code>+</code> appends text on
+        strings. <code>class(x)</code> reports which one a value is.</p>
       </section>
 
       <section class="doc-section" id="spec-expressions">
@@ -784,13 +793,14 @@ string  ::= 'hello', "world"</code></pre>
           <thead><tr><th>Name</th><th>Value</th></tr></thead>
           <tbody>
             <tr><td><code>pi</code></td><td>3.141592653589793</td></tr>
+            <tr><td><code>e</code></td><td>2.718281828459045</td></tr>
             <tr><td><code>eps</code></td><td>2.220446049250313e-16</td></tr>
-            <tr><td><code>inf</code></td><td>∞</td></tr>
-            <tr><td><code>nan</code></td><td>NaN</td></tr>
+            <tr><td><code>inf</code> / <code>Inf</code></td><td>∞</td></tr>
+            <tr><td><code>nan</code> / <code>NaN</code> / <code>NA</code></td><td>NaN</td></tr>
             <tr><td><code>i</code></td><td>0 + 1i</td></tr>
             <tr><td><code>j</code></td><td>0 + 1i</td></tr>
-            <tr><td><code>true</code></td><td>1</td></tr>
-            <tr><td><code>false</code></td><td>0</td></tr>
+            <tr><td><code>true</code></td><td>logical 1</td></tr>
+            <tr><td><code>false</code></td><td>logical 0</td></tr>
           </tbody>
         </table>
         <p>Constants are stored in the workspace and can be shadowed. Call <code>clear</code> to reset.</p>
@@ -803,6 +813,8 @@ string  ::= 'hello', "world"</code></pre>
           <thead><tr><th>Feature</th><th>Syntax</th></tr></thead>
           <tbody>
             <tr><td>Double-quoted strings</td><td><code>"hello"</code></td></tr>
+            <tr><td><code>containers.Map</code></td><td><code>containers.Map(keys, values)</code>, <code>m(key)</code>, <code>m.Count</code></td></tr>
+            <tr><td>Exception identifiers</td><td><code>error('id:tool:msg', 'text')</code>, <code>err.identifier</code></td></tr>
             <tr><td><code>#</code> comments</td><td><code># this is a comment</code></td></tr>
             <tr><td><code>**</code> power operator</td><td><code>2 ** 3</code></td></tr>
             <tr><td><code>@name</code> function handles</td><td><code>@sin</code>, <code>@cos</code></td></tr>

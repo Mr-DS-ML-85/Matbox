@@ -63,24 +63,28 @@ string  ::= 'hello', "world"
 |-------------|-----------|-------|-------------------------|
 | `^` `**`    | 120       | right | matrix power            |
 | `.^`        | 120       | right | element-wise power      |
+| unary `+` `-` | 111     | right | sign (binds looser than `^`, tighter than `*`) |
 | `'`         | 110       | left  | conjugate transpose     |
 | `.'`        | 110       | left  | non-conjugate transpose |
-| `+` `-`     | 100       | left  | unary plus/minus        |
-| `.*`        | 90        | left  | element-wise multiply   |
-| `./`        | 90        | left  | element-wise divide     |
-| `.\`        | 90        | left  | element-wise left-divide|
-| `*`         | 80        | left  | matrix multiply         |
-| `/`         | 80        | left  | matrix divide           |
-| `\`         | 80        | left  | matrix left-divide      |
-| `+` `-`     | 60        | left  | addition/subtraction    |
-| `:`         | 20        | left  | colon range             |
-| `<` `<=`    | 10        | left  | relational              |
-| `>` `>=`    | 10        | left  | relational              |
-| `==` `~=`   | 10        | left  | equality                |
-| `&`         | 5         | left  | logical AND             |
-| `|`         | 3         | left  | logical OR              |
-| `&&`        | 4         | left  | short-circuit AND       |
-| `||`        | 2         | left  | short-circuit OR        |
+| `*`         | 110       | left  | matrix multiply         |
+| `/`         | 110       | left  | matrix divide           |
+| `\`         | 110       | left  | matrix left-divide      |
+| `.*`        | 110       | left  | element-wise multiply   |
+| `./`        | 110       | left  | element-wise divide     |
+| `.\`        | 110       | left  | element-wise left-divide|
+| `+` `-`     | 100       | left  | addition/subtraction    |
+| `<` `<=` `>` `>=` `==` `~=` | 80 | left | relational          |
+| `&`         | 70        | left  | logical AND             |
+| `\|`        | 60        | left  | logical OR              |
+| `&&`        | 50        | left  | short-circuit AND       |
+| `\|\|`      | 50        | left  | short-circuit OR        |
+| `:`         | 10        | left  | colon range             |
+
+Because a leading sign sits at 111, it applies to the whole power rather than
+to the base: `-2^2` is `-(2^2)`, which evaluates to `-4`. Parentheses
+(`(-2)^2` → `4`) or an explicit sign still force the other grouping.
+
+`~` (logical NOT) binds tighter than every operator above.
 
 ### Punctuation
 
@@ -108,13 +112,25 @@ Additional wrapper types:
 
 | Type | Description |
 |------|-------------|
-| `Array` | N-D complex-valued matrix (the universal type) |
-| `String` | Character string |
+| `Array` | N-D matrix (`MxArray`); storage is double, logical, complex or int64 |
+| `String` | Character row vector (`'text'`) |
+| `Str` | String type (`"text"`) — a grid of text elements, distinct from `String` |
 | `Cell` | Heterogeneous array (`Vec<Vec<Value>>`) |
 | `Struct` | Field-value map (`HashMap<String, Value>`) |
+| `Map` | `containers.Map` — ordered key/value entries with arbitrary keys |
 | `Func` | Anonymous function handle (captured environment) |
 | `FuncRef` | Named function handle (`@sin`) |
 | `Multi` | Multi-output value container |
+
+The char and string types are separate: `'ab'` is a 2-element char row vector
+while `"ab"` is a single string element. Bracketing char arrays splices their
+characters (`['ab','cd']` → `'abcd'`), bracketing strings builds a string array
+(`["ab","cd"]` → two elements), and `+` appends text on strings. `class(x)`
+reports which one a value is.
+
+Concatenating arrays preserves the logical class when every operand is logical,
+and `class` reports `int64` for every integer width — the engine stores all
+integer widths in one integer representation.
 
 ---
 
@@ -229,6 +245,30 @@ s.field = 'value'
 [a, b] = myfunction(x)       % multi-output
 ```
 
+Assigning past the current end grows the array instead of failing. The new
+positions are zero-filled (or `false` for a logical array, so growing keeps the
+array's existing class), and `end` in an assignment refers to the size before
+the write, which makes `v(end+1) = x` the idiomatic append:
+
+```matlab
+v = [1 2 3];
+v(end+1) = 9;      % v == [1 2 3 9]
+v(6) = 5;          % v == [1 2 3 0 0 5], gap zero-filled
+M = [1 2; 3 4];
+M(3,3) = 9;        % 3x3, original block top-left, rest zero
+```
+
+Assigning an empty value deletes instead:
+
+```matlab
+A = [1 2 3 4];
+A(2) = [];         % A == [1 3 4]
+A(:) = [];         % A is empty
+```
+
+Deletion shrinks a vector and keeps its orientation. Deleting a linear index
+out of a matrix has no single resulting shape, so it is reported as an error.
+
 ### Conditionals
 
 ```matlab
@@ -332,6 +372,14 @@ catch err
 end
 ```
 
+The catch variable is bound to an exception struct with a `message` field and
+an `identifier` field. `error` takes an optional identifier first, so
+`error('id:tool:badinput', 'value must be positive')` produces
+`err.identifier == 'id:tool:badinput'`; an error raised without one leaves the
+identifier empty. `rethrow(err)` re-raises the caught exception with its
+identifier intact, which lets an inner block hand a specific failure to an
+outer handler.
+
 ### Return
 
 ```matlab
@@ -416,6 +464,19 @@ reshape, repmat, kron, diag
 find, linspace, logspace
 ```
 
+`max` and `min` report the position of the extremum as a second output, `sort`
+reports the permutation it applied, and `find` reports row and column indices
+instead of a linear index:
+
+```matlab
+[m, i] = max([3 1 9 2]);   % m == 9, i == 3
+[s, p] = sort([3 1 9]);   % p indexes back into the original
+[r, c] = find(X);          % r and c, column-shaped
+```
+
+A second argument of `[]` is the documented placeholder for "every dimension",
+and the axis can be named after it: `max(A, [], 2)`.
+
 ### Linear Algebra
 
 ```
@@ -434,8 +495,15 @@ zeros, ones, eye, rand, randn, randi, randperm, magic
 ```
 strcmp, strcmpi, upper, lower, strtrim, deblank
 strsplit, strjoin, num2str, int2str, str2double
-sprintf, contains, startsWith, endsWith
+sprintf, fprintf, contains, startsWith, endsWith
+string, strlength, mat2str
 ```
+
+`sprintf` builds text and `fprintf` writes it, returning the number of
+characters written; a leading file id of `1` or `2` selects stdout or stderr.
+Both expand `\n` and `\t` and honour precision (`%.2f`). `mat2str` renders a
+value as source text that reads back as the same value, spelling logicals as
+`true`/`false` so a round trip preserves the class.
 
 ### Type Checking
 
@@ -443,6 +511,7 @@ sprintf, contains, startsWith, endsWith
 ischar, islogical, isnumeric, isreal, isscalar
 isvector, isrow, iscolumn, ismatrix, isempty
 isinf, isnan, isfinite, iscell, isstruct
+class
 ```
 
 ### Cell Operations
@@ -451,6 +520,18 @@ isinf, isnan, isfinite, iscell, isstruct
 cellfun, num2cell, cell2mat, cat
 ```
 
+### Maps
+
+```
+containers.Map, keys, values, isKey, remove, Count
+```
+
+A map holds entries keyed by arbitrary values rather than by consecutive
+indices. Entries are read and written with call-style indexing on the variable
+itself, `m(key)`, which both looks up and inserts. `Count` is available as
+`m.Count` or `Count(m)`, and `isKey` reports membership without raising an
+error.
+
 ### Utilities
 
 ```
@@ -458,6 +539,7 @@ disp, error, warning, who, clear, exist
 format, run, help, feval, input
 struct, isfield, fieldnames, rmfield, orderfields
 isequal, isequaln
+rethrow
 deal
 nargin, nargout
 tic, toc, clc, pause
@@ -470,14 +552,18 @@ tic, toc, clc, pause
 | Name    | Value                        |
 |---------|------------------------------|
 | `pi`    | 3.141592653589793            |
+| `e`     | 2.718281828459045            |
 | `eps`   | 2.220446049250313e-16        |
-| `inf`   | ∞                            |
-| `nan`   | NaN                          |
+| `inf` `Inf` | ∞                         |
+| `nan` `NaN` `NA` | NaN                   |
 | `i`     | 0 + 1i                       |
 | `j`     | 0 + 1i                       |
-| `true`  | 1                            |
-| `false` | 0                            |
+| `true`  | logical 1                    |
+| `false` | logical 0                    |
 
+`true` and `false` have the logical class, so `class(true)` is `'logical'`.
+
+The non-finite values are spelled `Inf`, `-Inf` and `NaN` when printed.
 Constants are stored in the workspace and can be shadowed.
 Call `clear` to reset.
 
@@ -490,6 +576,8 @@ MATBOX extends standard MATLAB syntax with:
 | Feature | Syntax |
 |---------|--------|
 | Double-quoted strings | `"hello"` |
+| `containers.Map` | `containers.Map(keys, values)`, `m(key)`, `m.Count` |
+| Exception identifiers | `error('id:tool:msg', 'text')`, `err.identifier` |
 | `#` comments | `# this is a comment` |
 | `**` power operator | `2 ** 3` |
 | `@name` function handles | `@sin`, `@cos` |
