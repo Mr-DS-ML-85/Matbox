@@ -1,0 +1,78 @@
+% Triangular parts of a matrix: the offset shifts which diagonal the split
+% follows, so a positive k widens the lower triangle and narrows the upper.
+disp(tril([1 2; 3 4]));
+disp(triu([1 2; 3 4]));
+disp(tril([1 2 3; 4 5 6; 7 8 9], 1));
+
+% Quarter turns rotate anticlockwise; four of them are the identity.
+disp(rot90([1 2; 3 4]));
+disp(rot90([1 2; 3 4], 2));
+
+% A circular shift moves each element toward a higher index and wraps the
+% elements that fall off the end around to the start.
+disp(circshift([1 2 3], 1));
+disp(circshift([1 2 3], -1));
+disp(circshift([1 2 3], 5));
+disp(circshift([1 2; 3 4], [0 1]));
+
+% permute reorders axes, and ipermute reports the order that would undo it.
+disp(permute([1 2; 3 4], [2 1]));
+disp(ipermute([2 1]));
+
+% Row and element reordering keeps whole rows and elements intact.
+disp(sortrows([3 1; 1 2]));
+disp(sortrows([3 1; 1 2], 2));
+disp(repelem([1 2], 2));
+
+% Running extremes default to the first axis that is not a singleton, which
+% for a row vector is across its elements.
+disp(cummax([1 3 2]));
+disp(cummin([1 3 2]));
+disp(cummax([1 5; 2 3]));
+disp(cummax([1 5; 2 3], 2));
+
+% Norms follow the same default axis; the order is the third argument.
+disp(vecnorm([3 4]));
+disp(vecnorm([3 4], 2, Inf));
+disp(vecnorm([3 4; 0 0], 2));
+
+% dot conjugates the first operand and sums along the default axis, so two
+% vectors give a scalar and two matrices give the Hermitian product.
+disp(dot([1 2], [3 4]));
+disp(dot([1 2; 3 4], [5 6; 7 8]));
+
+% Integer predicates: greatest common divisor, primality, and roots.
+disp(gcd(12, 18));
+disp(lcm(4, 6));
+disp(isprime(7));
+disp(primes(10));
+disp(factorial(5));
+disp(nthroot(27, 3));
+
+% An odd root of a negative number stays real and negative rather than
+% becoming complex.
+disp(nthroot(-8, 3));
+
+% Powers pick the smallest power of two at or above the argument.
+disp(nextpow2(100));
+disp(pow2(3));
+
+% Degree/radian conversion and the stable variants of exp and log.
+disp(deg2rad(180));
+disp(rad2deg(pi));
+disp(expm1(0));
+disp(log1p(0));
+disp(realsqrt(9));
+disp(hypot(3, 4));
+
+% RMS is the root of the mean square, which is not the deviation about the
+% mean the way std is.
+disp(range([1 5 3]));
+disp(rms([1 2 3]));
+
+% xor is exclusive-or and yields a logical result.
+disp(xor(true, false));
+disp(class(xor(true, true)));
+
+% squeeze drops the axes of length one.
+disp(squeeze(ones(1, 3, 1)));

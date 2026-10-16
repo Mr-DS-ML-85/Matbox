@@ -109,6 +109,239 @@ fn value_to_text(v: &Value) -> String {
     }
 }
 
+/// Greatest common divisor by Euclid's algorithm, which stays fast on large
+/// inputs where a trial-division scan would not.
+fn gcd_f64(mut p: f64, mut q: f64) -> f64 {
+    p = p.abs();
+    q = q.abs();
+    while q > 0.0 {
+        let t = q;
+        q = p % q;
+        p = t;
+    }
+    p
+}
+
+/// Trial-division primality test, reported as logical 1/0. Cheap enough for the
+/// modest magnitudes these predicates are used with.
+fn is_prime_value(x: f64) -> f64 {
+    if x < 2.0 || x.fract() != 0.0 { return 0.0; }
+    let n = x as u64;
+    if n % 2 == 0 { return if n == 2 { 1.0 } else { 0.0 }; }
+    let mut d = 3u64;
+    while d as f64 * d as f64 <= n as f64 {
+        if n % d == 0 { return 0.0; }
+        d += 2;
+    }
+    1.0
+}
+
+/// Element-wise integer-valued operation over two arrays, broadcasting a
+/// scalar operand against the other and taking the shape of whichever side is
+/// the longer one.
+fn integer_binary(x: &MxArray, y: &MxArray, f: impl Fn(f64, f64) -> f64) -> MxArray {
+    let xv = x.iter_complex();
+    let yv = y.iter_complex();
+    let (n, shape) = if yv.len() == 1 {
+        (xv.len(), x.shape.clone())
+    } else if xv.len() == 1 {
+        (yv.len(), y.shape.clone())
+    } else {
+        (xv.len().min(yv.len()), x.shape.clone())
+    };
+    let out: Vec<f64> = (0..n)
+        .map(|i| {
+            let p = xv[i.min(xv.len().saturating_sub(1))].re;
+            let q = yv[i.min(yv.len().saturating_sub(1))].re;
+            f(p, q)
+        })
+        .collect();
+    MxArray::from_double_colmajor(out, &shape)
+}
+
+/// Collect the values lying along `dim` for each output position of a
+/// reduction, with the output shape. Positions come back in column-major
+/// output order, and within a group in increasing index order along `dim`.
+fn groups_along_dim(x: &MxArray, dim: usize) -> (Vec<usize>, Vec<Vec<Complex64>>) {
+    let ndim = x.ndims();
+    let d = dim.min(ndim).max(1) - 1;
+    let mut out_shape = x.shape.clone();
+    out_shape[d] = 1;
+    while out_shape.len() < 2 { out_shape.push(1); }
+    let out_strides = MxArray::col_strides(&out_shape);
+    let total: usize = out_shape.iter().product();
+    let mut groups: Vec<Vec<Complex64>> = vec![Vec::new(); total];
+    for lin in 0..x.numel() {
+        let mi = linear_of(x, lin);
+        let mut oi = 0usize;
+        for k in 0..ndim {
+            if k == d { continue; }
+            oi += mi[k] * out_strides[k];
+        }
+        groups[oi].push(x.get_complex(&mi));
+    }
+    (out_shape, groups)
+}
+
+/// Running extreme along `dim`, so the output keeps the input's shape.
+///
+/// The accumulator is keyed by the position with `dim` collapsed, which is what
+/// makes successive elements along that axis build on each other, while the
+/// result is still written back at every input position.
+fn cum_extreme(x: &MxArray, dim: usize, is_max: bool) -> MxArray {
+    let ndim = x.ndims();
+    let d = dim.min(ndim).max(1) - 1;
+    let mut shape = x.shape.clone();
+    while shape.len() < 2 { shape.push(1); }
+    let mut red_shape = x.shape.clone();
+    red_shape[d] = 1;
+    while red_shape.len() < 2 { red_shape.push(1); }
+    let red_strides = MxArray::col_strides(&red_shape);
+    let slots: usize = red_shape.iter().product();
+    let mut acc = vec![Complex64::new(0.0, 0.0); slots];
+    let mut seen = vec![false; slots];
+    let mut buf = vec![Complex64::new(0.0, 0.0); x.numel()];
+    for lin in 0..x.numel() {
+        let mi = linear_of(x, lin);
+        let mut oi = 0usize;
+        for k in 0..ndim {
+            if k == d { continue; }
+            oi += mi[k] * red_strides[k];
+        }
+        let v = x.get_complex(&mi);
+        // Ties keep the incumbent so the running value only moves when the
+        // extreme genuinely changes.
+        acc[oi] = if !seen[oi] {
+            seen[oi] = true;
+            v
+        } else if is_max == (v.re >= acc[oi].re) {
+            v
+        } else {
+            acc[oi]
+        };
+        buf[lin] = acc[oi];
+    }
+    MxArray::from_complex_colmajor(buf, &shape)
+}
+
+/// Vector norm along `dim`. Order defaults to 2; `Inf` and `-Inf` give the
+/// largest and smallest magnitude, and 0 counts non-zeros.
+fn vecnorm_array(x: &MxArray, dim: usize, ord: Option<f64>) -> MxArray {
+    let (shape, groups) = groups_along_dim(x, dim);
+    let p = ord.unwrap_or(2.0);
+    let out: Vec<Complex64> = groups.iter().map(|g| {
+        if g.is_empty() { return Complex64::new(0.0, 0.0); }
+        let mags: Vec<f64> = g.iter().map(|c| c.norm()).collect();
+        let r = if p == 0.0 {
+            mags.iter().filter(|&&v| v != 0.0).count() as f64
+        } else if p.is_infinite() {
+            if p > 0.0 { mags.iter().cloned().fold(0.0f64, f64::max) }
+            else { mags.iter().cloned().fold(0.0f64, f64::min) }
+        } else {
+            mags.iter().map(|&v| v.powf(p)).sum::<f64>().powf(1.0 / p)
+        };
+        Complex64::new(r, 0.0)
+    }).collect();
+    MxArray::from_complex_colmajor(out, &shape)
+}
+
+/// Shift elements cyclically, wrapping off one end to the other. A positive
+/// count moves each element toward a higher index.
+fn circshift(x: &MxArray, rows: i64, cols: i64) -> MxArray {
+    let m = x.shape[0] as i64;
+    let n = x.shape.get(1).copied().unwrap_or(1) as i64;
+    let wrap = |v: i64, len: i64| -> usize {
+        if len == 0 { return 0; }
+        (((v % len) + len) % len) as usize
+    };
+    let mut buf = vec![Complex64::new(0.0, 0.0); x.numel()];
+    for i in 0..m {
+        for j in 0..n {
+            let src = linear_of(x, (i as usize) + (j as usize) * (m as usize));
+            let dst = wrap(i + rows, m) as usize + (wrap(j + cols, n) as usize) * (m as usize);
+            buf[dst] = x.get_complex(&src);
+        }
+    }
+    MxArray::from_complex_colmajor(buf, &x.shape)
+}
+
+/// Permutation vector from an argument, defaulting to `1..=ndims`.
+fn order_vec(arg: Option<&Value>, ndim: usize) -> Result<Vec<usize>, EngineError> {
+    let v = match arg {
+        Some(v) => v.as_array().to_double_vec(),
+        None => (1..=ndim).map(|i| i as f64).collect(),
+    };
+    if v.is_empty() { return Err(EngineError::Msg("permute: empty dimension order".into())); }
+    Ok(v.iter().map(|&d| d as usize).collect())
+}
+
+/// Reorder dimensions. Column-major data is gathered through the inverse of the
+/// requested order, so the result really is the permuted array.
+fn permute_array(x: &MxArray, order: &[usize]) -> MxArray {
+    let ndim = x.ndims();
+    let d = ndim.min(order.len());
+    let mut new_shape = vec![1usize; d];
+    for k in 0..d { new_shape[k] = x.shape[order[k].saturating_sub(1)]; }
+    while new_shape.len() < 2 { new_shape.push(1); }
+    let mut inv = vec![0usize; d];
+    for (k, &o) in order.iter().take(d).enumerate() { inv[o.saturating_sub(1)] = k; }
+    let total: usize = new_shape.iter().product();
+    let mut buf = vec![Complex64::new(0.0, 0.0); total];
+    for lin in 0..total {
+        // Translate the position in the output back to one in the input.
+        let mut rem = lin;
+        let mut out_mi = vec![0usize; d];
+        for k in 0..d { out_mi[k] = rem % new_shape[k]; rem /= new_shape[k]; }
+        let mut in_mi = vec![0usize; ndim];
+        for k in 0..d { in_mi[inv[k]] = out_mi[k]; }
+        buf[lin] = x.get_complex(&in_mi);
+    }
+    MxArray::from_complex_colmajor(buf, &new_shape)
+}
+
+/// Order rows by one column, keeping the rows intact.
+fn sortrows(x: &MxArray, key_col: usize) -> MxArray {
+    let m = x.shape[0];
+    let n = x.shape.get(1).copied().unwrap_or(1);
+    let col = key_col.clamp(1, n.max(1)) - 1;
+    let mut rows: Vec<usize> = (0..m).collect();
+    rows.sort_by(|&i, &j| {
+        x.get_double(&[i, col]).partial_cmp(&x.get_double(&[j, col])).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut buf = vec![Complex64::new(0.0, 0.0); x.numel()];
+    for (dst, &src) in rows.iter().enumerate() {
+        for j in 0..n { buf[dst + j * m] = x.get_complex(&[src, j]); }
+    }
+    MxArray::from_complex_colmajor(buf, &x.shape)
+}
+
+/// Repeat each element, either once per axis or `reps` times along axis 1.
+fn repelem(x: &MxArray, reps: &[usize]) -> MxArray {
+    let m = x.shape[0];
+    let n = x.shape.get(1).copied().unwrap_or(1);
+    // When one count is given it applies along the long axis, matching how a
+    // single repetition count reads.
+    let (rm, rn) = match reps.len() {
+        0 => (1, 1),
+        1 => {
+            if m >= n { (reps[0], 1) } else { (1, reps[0]) }
+        }
+        _ => (reps[0], reps.get(1).copied().unwrap_or(1)),
+    };
+    let mut rows = Vec::with_capacity(m * rm);
+    for i in 0..m {
+        let mut row = Vec::with_capacity(n * rn);
+        for j in 0..n {
+            for _ in 0..rn { row.push(x.get_complex(&[i, j])); }
+        }
+        for _ in 0..rm { rows.push(row.clone()); }
+    }
+    let new_n = n * rn;
+    let mut buf = Vec::with_capacity(m * rm * new_n);
+    for row in &rows { buf.extend_from_slice(row); }
+    MxArray::from_complex_colmajor(buf, &[m * rm, new_n])
+}
+
 /// Name of the value's type as MATBOX reports it from `class`. Numbers are
 /// distinguished by their storage, so a logical array does not report as
 /// `double`.
@@ -1184,6 +1417,237 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
                 other => Ok(Value::Str(vec![vec![value_to_text(other)]])),
             }
         }
+        // ── element-wise math (wave 2) ──
+        // Degrees and radians convert by a fixed factor, which is a multiply
+        // rather than a transcendental call.
+        "deg2rad" => elem1!(|c| c * (std::f64::consts::PI / 180.0)),
+        "rad2deg" => elem1!(|c| c * (180.0 / std::f64::consts::PI)),
+        "sec" => elem1!(|c| Complex64::new(1.0, 0.0) / c.cos()),
+        "csc" => elem1!(|c| Complex64::new(1.0, 0.0) / c.sin()),
+        "cot" => elem1!(|c| Complex64::new(1.0, 0.0) / c.tan()),
+        "expm1" => elem1!(|c| c.exp() - Complex64::new(1.0, 0.0)),
+        "log1p" => elem1!(|c| (c + Complex64::new(1.0, 0.0)).ln()),
+        // The real-part square root, kept distinct from sqrt so that a caller
+        // asking for the real root gets one even for a negative input.
+        "realsqrt" => elem1!(|c| Complex64::new(c.re.sqrt(), 0.0)),
+        "pow2" => elem1!(|c| Complex64::new(2.0, 0.0).powc(c)),
+        "sqrtm" => elem1!(|c| c.sqrt()),
+        "hypot" => elem2!(|x, y| (x * x + y * y).sqrt()),
+        "gcd" => {
+            let x = a(0)?;
+            let y = a(1)?;
+            Ok(Value::Array(integer_binary(&x, &y, |p, q| gcd_f64(p, q))))
+        }
+        "lcm" => {
+            let x = a(0)?;
+            let y = a(1)?;
+            Ok(Value::Array(integer_binary(&x, &y, |p, q| {
+                let (p, q) = (p.abs(), q.abs());
+                if p == 0.0 || q == 0.0 { 0.0 } else { p * q / gcd_f64(p, q) }
+            })))
+        }
+        "nextpow2" => elem1!(|c| {
+            if c.re <= 1.0 { return Complex64::new(1.0, 0.0); }
+            // 2^ceil(log2(x)) is the smallest power of two at or above x.
+            Complex64::new(2f64.powf(c.re.log2().ceil()), 0.0)
+        }),
+        "nthroot" => {
+            let x = a(0)?;
+            let k = args.get(1).and_then(|v| v.as_array().to_scalar().into()).unwrap_or(2.0);
+            if k == 0.0 { return Err(EngineError::Msg("nthroot: degree must be non-zero".into())); }
+            // Odd roots of a negative number stay negative rather than going
+            // complex, which is why the sign is applied after the power.
+            Ok(Value::Array(unary_elementwise(&x, |c| {
+                if c.re < 0.0 && k.fract() == 1.0 {
+                    Complex64::new(-(-c.re).powf(1.0 / k), 0.0)
+                } else {
+                    Complex64::new(c.re.abs().powf(1.0 / k) * c.re.signum(), c.im)
+                }
+            })))
+        }
+        "factorial" => elem1!(|c| {
+            if c.re < 0.0 && c.re.fract() == 0.0 { return Complex64::new(f64::NAN, 0.0); }
+            let n = c.re.round();
+            // Past 170 the product leaves the range of a double, and a
+            // non-finite or negative argument would never finish a loop.
+            if !n.is_finite() || n < 0.0 { return Complex64::new(f64::NAN, 0.0); }
+            if n > 170.0 { return Complex64::new(f64::INFINITY, 0.0); }
+            let mut acc = 1.0;
+            let mut i = 2.0;
+            while i <= n { acc *= i; i += 1.0; }
+            Complex64::new(acc, 0.0)
+        }),
+        "isprime" => elem1!(|c| Complex64::new(is_prime_value(c.re), 0.0)),
+        "primes" => {
+            let limit = args.first().and_then(|v| v.as_array().to_scalar().into()).unwrap_or(100.0) as usize;
+            // Trial division is linear in the limit, so cap it rather than let a
+            // large argument turn into an unbounded scan.
+            const PRIME_SCAN_LIMIT: usize = 1_000_000;
+            let limit = limit.min(PRIME_SCAN_LIMIT);
+            let out: Vec<f64> = (2..=limit).filter(|&p| is_prime_value(p as f64) != 0.0).map(|p| p as f64).collect();
+            let n = out.len();
+            Ok(Value::Array(MxArray::from_double_colmajor(out, &[n, 1])))
+        }
+
+        // ── logical and bitwise (wave 2) ──
+        // Element-wise logical operators return logical arrays, so the result
+        // is built as logical rather than converted back from doubles.
+        "xor" => {
+            let x = a(0)?;
+            let y = a(1)?;
+            let n = x.numel().max(y.numel());
+            let mut flags = Vec::with_capacity(n);
+            for i in 0..n {
+                let p = x.iter_complex()[i.min(x.numel().saturating_sub(1))];
+                let q = y.iter_complex()[i.min(y.numel().saturating_sub(1))];
+                flags.push((p.norm() != 0.0) != (q.norm() != 0.0));
+            }
+            let shape = if y.numel() == 1 { x.shape.clone() } else if x.numel() == 1 { y.shape.clone() } else { x.shape.clone() };
+            Ok(Value::Array(MxArray::from_logical_colmajor(flags, &shape)))
+        }
+
+        // ── linear algebra (wave 2) ──
+        "tril" | "triu" => {
+            let lower = name == "tril";
+            let x = a(0)?;
+            let k = args.get(1).and_then(|v| v.as_array().to_scalar().into()).unwrap_or(0.0) as i64;
+            let m = x.shape[0];
+            let n = x.shape.get(1).copied().unwrap_or(1);
+            let mut out = x.clone();
+            for i in 0..m {
+                for j in 0..n {
+                    let keep = if lower { (j as i64) <= (i as i64) + k } else { (j as i64) >= (i as i64) + k };
+                    if !keep { out.set_complex(&[i, j], Complex64::new(0.0, 0.0)); }
+                }
+            }
+            Ok(Value::Array(out))
+        }
+        "dot" => {
+            let x = a(0)?;
+            let y = a(1)?;
+            // The product conjugates the first operand and sums along the first
+            // axis that is not a singleton, so two vectors give a scalar while
+            // two matrices give the Hermitian product A' * B.
+            let dim = default_dim(&x);
+            let prod = binary_elementwise(&x, &y, |p, q| p.conj() * q)
+                .map_err(|e| EngineError::Msg(e.to_string()))?;
+            Ok(Value::Array(reduce(&prod, dim, Complex64::new(0.0, 0.0), |s, v| s + v)))
+        }
+        "cross" => {
+            let x = a(0)?.to_double_vec();
+            let y = a(1)?.to_double_vec();
+            if x.len() != 3 || y.len() != 3 {
+                return Err(EngineError::Msg("cross: both inputs must be three-element vectors".into()));
+            }
+            let c = [
+                x[1] * y[2] - x[2] * y[1],
+                x[2] * y[0] - x[0] * y[2],
+                x[0] * y[1] - x[1] * y[0],
+            ];
+            Ok(Value::Array(MxArray::from_double_colmajor(c.to_vec(), &[3, 1])))
+        }
+        "vecnorm" => {
+            let x = a(0)?;
+            let dim = dim_from_args(&x, args, 1);
+            let ord = args.get(2).and_then(|v| v.as_array().to_scalar().into());
+            Ok(Value::Array(vecnorm_array(&x, dim, ord)))
+        }
+
+        // ── array shaping and scanning (wave 2) ──
+        "circshift" => {
+            let x = a(0)?;
+            // A scalar shift moves along the first axis that is not a singleton,
+            // so it follows the vector's long axis. An explicit pair names rows
+            // then columns.
+            let (rows, cols) = match args.get(1) {
+                Some(v) => {
+                    let arr = v.as_array();
+                    if arr.is_scalar() {
+                        let s = arr.to_scalar() as i64;
+                        if x.shape[0] > 1 { (s, 0) } else { (0, s) }
+                    } else {
+                        let last = 1.min(arr.shape[1].saturating_sub(1));
+                        (arr.get_double(&[0, 0]) as i64, arr.get_double(&[0, last]) as i64)
+                    }
+                }
+                None => (0, 0),
+            };
+            Ok(Value::Array(circshift(&x, rows, cols)))
+        }
+        "rot90" => {
+            let x = a(0)?;
+            let k = args.get(1).and_then(|v| v.as_array().to_scalar().into()).unwrap_or(1.0) as i64;
+            let mut cur = x.clone();
+            // One rotation is a transpose followed by a horizontal flip, which
+            // is the cheapest direction available from the array API.
+            for _ in 0..((k % 4) + 4) % 4 {
+                let t = cur.transpose();
+                cur = flip_dim(&t, 1);
+            }
+            Ok(Value::Array(cur))
+        }
+        "permute" => {
+            let x = a(0)?;
+            let order = order_vec(args.get(1), x.ndims())?;
+            Ok(Value::Array(permute_array(&x, &order)))
+        }
+        "ipermute" => {
+            let order = match args.first() {
+                Some(v) => v.as_array().to_double_vec().iter().map(|&d| d as usize).collect::<Vec<usize>>(),
+                None => return Err(EngineError::Msg("ipermute: expected a dimension order".into())),
+            };
+            // Invert the order: the axis that landed at position k in the
+            // permuted array came from the axis the order names at k.
+            let mut inv = vec![0usize; order.len()];
+            for (i, &o) in order.iter().enumerate() {
+                if o == 0 || o > order.len() {
+                    return Err(EngineError::Msg("ipermute: dimension order out of range".into()));
+                }
+                inv[o - 1] = i + 1;
+            }
+            let n = inv.len();
+            Ok(Value::Array(MxArray::from_double_colmajor(inv.iter().map(|&v| v as f64).collect(), &[n, 1])))
+        }
+        "squeeze" => {
+            let x = a(0)?;
+            let shape: Vec<usize> = x.shape.iter().copied().filter(|&s| s != 1).collect();
+            Ok(Value::Array(MxArray::from_complex_colmajor(x.iter_complex(), &shape)))
+        }
+        "sortrows" => {
+            let x = a(0)?;
+            let key_col = args.get(1).and_then(|v| v.as_array().to_scalar().into()).unwrap_or(1.0) as usize;
+            Ok(Value::Array(sortrows(&x, key_col)))
+        }
+        "repelem" => {
+            let x = a(0)?;
+            let reps: Vec<usize> = args[1..].iter().map(|v| v.as_array().to_scalar().max(0.0) as usize).collect();
+            Ok(Value::Array(repelem(&x, &reps)))
+        }
+        "range" => {
+            let x = a(0)?;
+            let vals = x.iter_complex();
+            if vals.is_empty() { return Ok(Value::Array(MxArray::new_double(&[1, 0]))); }
+            let mut lo = vals[0].re;
+            let mut hi = vals[0].re;
+            for c in &vals { lo = lo.min(c.re); hi = hi.max(c.re); }
+            Ok(Value::Array(MxArray::scalar_double(hi - lo)))
+        }
+        "rms" => {
+            let x = a(0)?;
+            let vals = x.iter_complex();
+            if vals.is_empty() { return Ok(Value::Array(MxArray::new_double(&[1, 0]))); }
+            // Root mean square: the square root of the mean of the squares,
+            // not the standard deviation around the mean.
+            let mean_sq = vals.iter().map(|c| c.re * c.re).sum::<f64>() / vals.len() as f64;
+            Ok(Value::Array(MxArray::scalar_double(mean_sq.sqrt())))
+        }
+        "cummax" | "cummin" => {
+            let is_max = name == "cummax";
+            let x = a(0)?;
+            let dim = dim_from_args(&x, args, 1);
+            Ok(Value::Array(cum_extreme(&x, dim, is_max)))
+        }
+
         // ── containers.Map ──
         // The entry count is reachable both as `m.Count` and as `Count(m)`.
         "Count" => {
@@ -2751,9 +3215,34 @@ mod tests {
         }
     }
 
+    /// Values of an expression in row-major (display) order, which is how
+/// expectations read most naturally. Storage is column-major, so a matrix's
+    /// two orders differ and this keeps the literals below matching what `disp`
+    /// prints.
+    fn vals_disp(src: &str) -> Vec<f64> {
+        let a = eval1(src).as_array().clone();
+        let m = a.shape[0];
+        let n = a.shape.get(1).copied().unwrap_or(1);
+        let mut out = Vec::with_capacity(a.numel());
+        for i in 0..m {
+            for j in 0..n { out.push(a.get_double(&[i, j])); }
+        }
+        out
+    }
+
     /// Values produced by a snippet, flattened in column-major order.
     fn vals_of(src: &str) -> Vec<f64> {
         nums(&eval1(src))
+    }
+
+    /// Display-ordered values of an expression, checked element-wise against
+    /// an expectation.
+    fn approx(src: &str, want: &[f64]) {
+        let got = vals_disp(src);
+        assert_eq!(got.len(), want.len(), "{src}: length {got:?} vs {want:?}");
+        for (g, w) in got.iter().zip(want) {
+            assert!((g - w).abs() < 1e-9, "{src}: {got:?} vs {want:?}");
+        }
     }
 
     // --- logical type is preserved by concatenation ---
@@ -2830,7 +3319,153 @@ mod tests {
         assert_eq!(text("string(0/0)"), "NaN");
     }
 
-    // --- containers.Map ---
+    // --- wave 2 builtins ---
+
+    #[test]
+    fn tril_and_triu_take_a_lower_and_upper_part() {
+        approx("tril([1 2; 3 4])", &[1.0, 0.0, 3.0, 4.0]);
+        approx("triu([1 2; 3 4])", &[1.0, 2.0, 0.0, 4.0]);
+        // The offset shifts the diagonal the split follows.
+        approx("tril([1 2 3; 4 5 6; 7 8 9], 1)", &[1.0, 2.0, 0.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+        approx("tril([1 2 3; 4 5 6; 7 8 9])", &[1.0, 0.0, 0.0, 4.0, 5.0, 0.0, 7.0, 8.0, 9.0]);
+    }
+
+    #[test]
+    fn rot90_turns_quarter_turns_at_a_time() {
+        approx("rot90([1 2; 3 4])", &[3.0, 1.0, 4.0, 2.0]);
+        approx("rot90([1 2; 3 4], 2)", &[4.0, 3.0, 2.0, 1.0]);
+        // Four turns is the identity.
+        approx("rot90([1 2; 3 4], 4)", &[1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn circshift_moves_elements_toward_higher_indices() {
+        approx("circshift([1 2 3], 1)", &[3.0, 1.0, 2.0]);
+        approx("circshift([1 2 3], -1)", &[2.0, 3.0, 1.0]);
+        // A shift past the length wraps rather than losing elements.
+        approx("circshift([1 2 3], 5)", &[2.0, 3.0, 1.0]);
+        approx("circshift([1 2; 3 4], [0 1])", &[2.0, 1.0, 4.0, 3.0]);
+        approx("circshift([1 2; 3 4], [1 0])", &[3.0, 4.0, 1.0, 2.0]);
+    }
+
+    #[test]
+    fn permute_and_ipermute_are_inverses() {
+        approx("permute([1 2; 3 4], [2 1])", &[1.0, 3.0, 2.0, 4.0]);
+        approx("ipermute([2 1])", &[2.0, 1.0]);
+        approx("ipermute([2 3 1])", &[3.0, 1.0, 2.0]);
+    }
+
+    #[test]
+    fn permute_rejects_an_out_of_range_order() {
+        assert!(err_of("ipermute([5])").contains("out of range"));
+    }
+
+    #[test]
+    fn sortrows_orders_whole_rows_by_one_column() {
+        approx("sortrows([3 1; 1 2])", &[1.0, 2.0, 3.0, 1.0]);
+        approx("sortrows([3 1; 1 2], 2)", &[3.0, 1.0, 1.0, 2.0]);
+    }
+
+    #[test]
+    fn repelem_repeats_elements() {
+        approx("repelem([1 2], 2)", &[1.0, 1.0, 2.0, 2.0]);
+        approx("repelem([1; 2], 3)", &[1.0, 1.0, 1.0, 2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn cummax_and_cummin_track_a_running_extreme() {
+        approx("cummax([1 3 2])", &[1.0, 3.0, 3.0]);
+        approx("cummin([1 3 2])", &[1.0, 1.0, 1.0]);
+        // Default axis is the first non-singleton one, which for a matrix is
+        // down the columns.
+        approx("cummax([1 5; 2 3])", &[1.0, 5.0, 2.0, 5.0]);
+        approx("cummax([1 5; 2 3], 2)", &[1.0, 5.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn vecnorm_uses_the_first_non_singleton_axis_by_default() {
+        approx("vecnorm([3 4])", &[5.0]);
+        approx("vecnorm([3 4; 0 0], 2)", &[5.0, 0.0]);
+        approx("vecnorm([3 4], 2, Inf)", &[4.0]);
+        approx("vecnorm([-1 2], 2, 1)", &[3.0]);
+    }
+
+    #[test]
+    fn dot_sums_the_conjugate_product_along_the_default_axis() {
+        approx("dot([1 2], [3 4])", &[11.0]);
+        // For matrices that is the Hermitian product A' * B.
+        approx("dot([1 2; 3 4], [5 6; 7 8])", &[26.0, 44.0]);
+    }
+
+    #[test]
+    fn cross_needs_three_element_vectors() {
+        approx("cross([1 0 0], [0 1 0])", &[0.0, 0.0, 1.0]);
+        assert!(err_of("cross([1 0], [0 1])").contains("three-element"));
+    }
+
+    #[test]
+    fn integer_predicates_use_euclid_and_trial_division() {
+        approx("gcd(12, 18)", &[6.0]);
+        approx("gcd(0, 5)", &[5.0]);
+        approx("lcm(4, 6)", &[12.0]);
+        approx("lcm(0, 5)", &[0.0]);
+        approx("isprime(7)", &[1.0]);
+        approx("isprime(9)", &[0.0]);
+        approx("isprime(1)", &[0.0]);
+        approx("primes(10)", &[2.0, 3.0, 5.0, 7.0]);
+    }
+
+    #[test]
+    fn factorial_and_nthroot_follow_the_sign_conventions() {
+        approx("factorial(5)", &[120.0]);
+        approx("factorial(0)", &[1.0]);
+        // A negative integer factorial is undefined, reported as NaN.
+        assert!(vals_of("factorial(-1)")[0].is_nan());
+        approx("nthroot(27, 3)", &[3.0]);
+        // An odd root of a negative number stays real and negative.
+        approx("nthroot(-8, 3)", &[-2.0]);
+        assert!(err_of("nthroot(4, 0)").contains("non-zero"));
+    }
+
+    #[test]
+    fn power_helpers_pick_the_right_exponent() {
+        approx("nextpow2(100)", &[128.0]);
+        approx("nextpow2(64)", &[64.0]);
+        approx("nextpow2(1)", &[1.0]);
+        approx("pow2(3)", &[8.0]);
+    }
+
+    #[test]
+    fn degree_radian_and_stable_variants_convert_as_documented() {
+        approx("deg2rad(180)", &[std::f64::consts::PI]);
+        approx("rad2deg(pi)", &[180.0]);
+        approx("expm1(0)", &[0.0]);
+        approx("log1p(0)", &[0.0]);
+        approx("realsqrt(9)", &[3.0]);
+        approx("hypot(3, 4)", &[5.0]);
+        approx("sec(0)", &[1.0]);
+        approx("cot(pi/4)", &[1.0]);
+    }
+
+    #[test]
+    fn spread_measures_summarise_a_vector() {
+        approx("range([1 5 3])", &[4.0]);
+        // RMS is the root of the mean square, not the deviation about the mean.
+        let want = ((1.0f64 + 4.0 + 9.0) / 3.0).sqrt();
+        approx("rms([1 2 3])", &[want]);
+    }
+
+    #[test]
+    fn xor_is_exclusive_or() {
+        assert_eq!(class_of("xor(true, false)"), "logical");
+        approx("xor(true, false)", &[1.0]);
+        approx("xor(true, true)", &[0.0]);
+    }
+
+    #[test]
+    fn squeeze_drops_singleton_dimensions() {
+        approx("squeeze(ones(1, 3, 1))", &[1.0, 1.0, 1.0]);
+    }
 
     #[test]
     fn count_is_available_as_a_function_and_a_property() {

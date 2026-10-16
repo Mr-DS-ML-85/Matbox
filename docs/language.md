@@ -447,7 +447,10 @@ Run: `matbox run myscript.mbox` or call the name without extension from the REPL
 ```
 sin, cos, tan, asin, acos, atan, atan2
 sinh, cosh, tanh, asinh, acosh, atanh
-exp, log, log10, log2, sqrt
+sec, csc, cot
+exp, expm1, log, log1p, log10, log2, sqrt, realsqrt
+deg2rad, rad2deg, hypot
+pow2, nextpow2
 abs, angle, conj, real, imag
 floor, ceil, round, fix, sign
 mod, rem
@@ -462,7 +465,21 @@ cumsum, cumprod, diff
 sort, unique, flip, fliplr, flipud
 reshape, repmat, kron, diag
 find, linspace, logspace
+circshift, rot90, permute, ipermute, squeeze
+sortrows, repelem, cummax, cummin, xor
+vecnorm, range, rms
 ```
+
+`circshift` moves each element toward a higher index and wraps the ones that
+fall off the end around to the start; a scalar count follows the vector's long
+axis. `cummax`/`cummin` default to the first axis that is not a singleton,
+which for a row vector means across its elements. `vecnorm` takes the axis as
+its second argument and the order as its third.
+
+Integer predicates use Euclid's algorithm and trial division: `gcd`, `lcm`,
+`isprime`, `primes`, `factorial`, `nthroot`, `nextpow2`, `pow2`. An odd root of
+a negative number stays real and negative, and `factorial` reports `Inf` past
+170 rather than overflowing.
 
 `max` and `min` report the position of the extremum as a second output, `sort`
 reports the permutation it applied, and `find` reports row and column indices
@@ -482,7 +499,13 @@ and the axis can be named after it: `max(A, [], 2)`.
 ```
 inv, det, rank, trace, norm
 lu, qr, chol, eig, svd, pinv
+tril, triu, dot, cross
 ```
+
+`tril` and `triu` take an optional offset that shifts the diagonal the split
+follows, so `tril(A, 1)` widens the lower triangle. `dot` conjugates the first
+operand and sums along the first axis that is not a singleton, so two vectors
+give a scalar while two matrices give the Hermitian product `A' * B`.
 
 ### Matrix Creation
 

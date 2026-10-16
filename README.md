@@ -226,18 +226,18 @@ end
 | Line continuation | `A = [1 2 3; ...` | ✅ |
 | LSP server | Completions, diagnostics, hover | ✅ |
 
-## Built-in Functions (220+)
+## Built-in Functions (255+)
 
 | Category | Functions |
 |----------|-----------|
-| **Trigonometry** | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` |
-| **Exponentials** | `exp`, `log`, `log10`, `log2`, `sqrt`, `abs`, `angle`, `conj`, `real`, `imag` |
+| **Trigonometry** | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `sec`, `csc`, `cot` |
+| **Exponentials** | `exp`, `expm1`, `log`, `log1p`, `log10`, `log2`, `sqrt`, `realsqrt`, `pow2`, `nextpow2`, `abs`, `angle`, `conj`, `real`, `imag`, `hypot`, `deg2rad`, `rad2deg` |
 | **Rounding** | `floor`, `ceil`, `round`, `fix`, `sign`, `mod`, `rem` |
-| **Special Math** | `erf`, `erfc`, `erfinv`, `gamma`, `gammaln` |
-| **Array** | `length`, `size`, `numel`, `ndims`, `sum`, `prod`, `mean`, `median`, `mode`, `std`, `var`, `min`, `max`, `any`, `all`, `cumsum`, `cumprod`, `diff`, `sort`, `unique`, `flip`, `fliplr`, `flipud`, `reshape`, `repmat`, `kron`, `diag`, `find`, `linspace`, `logspace`, `colon`, `meshgrid` |
-| **Linear Algebra** | `inv`, `det`, `rank`, `trace`, `norm`, `lu`, `qr`, `chol`, `eig`, `svd`, `pinv` |
+| **Special Math** | `erf`, `erfc`, `erfinv`, `gamma`, `gammaln`, `factorial`, `gcd`, `lcm`, `isprime`, `primes` |
+| **Array** | `length`, `size`, `numel`, `ndims`, `sum`, `prod`, `mean`, `median`, `mode`, `std`, `var`, `min`, `max`, `any`, `all`, `cumsum`, `cumprod`, `diff`, `sort`, `unique`, `flip`, `fliplr`, `flipud`, `reshape`, `repmat`, `kron`, `diag`, `find`, `linspace`, `logspace`, `colon`, `meshgrid`, `circshift`, `rot90`, `permute`, `ipermute`, `squeeze`, `sortrows`, `repelem`, `cummax`, `cummin`, `vecnorm`, `range`, `rms`, `xor` |
+| **Linear Algebra** | `inv`, `det`, `rank`, `trace`, `norm`, `lu`, `qr`, `chol`, `eig`, `svd`, `pinv`, `tril`, `triu`, `dot`, `cross` |
 | **Matrix Creation** | `zeros`, `ones`, `eye`, `rand`, `randn`, `randi`, `randperm`, `magic` |
-| **Polynomials** | `polyval`, `poly`, `roots`, `polyfit` |
+| **Polynomials** | `polyval`, `poly`, `roots`, `polyfit`, `nthroot` |
 | **Set Operations** | `intersect`, `setdiff`, `setxor`, `union`, `ismember`, `issorted` |
 | **Correlation** | `corrcoef`, `cov` |
 | **Fourier / Signal** | `fft`, `ifft`, `fftshift`, `ifftshift`, `conv`, `filter` |
@@ -329,7 +329,7 @@ endif
 | Execution (eval, evalc) | ✅ |
 | File system (pwd, ls, dir) | ✅ |
 | Graphics stubs (plot, figure, subplot, etc.) | ✅ |
-| 220+ built-in functions | ✅ |
+| 255+ built-in functions | ✅ |
 | LSP server (completions, diagnostics, hover) | ✅ |
 | Conformance suite (`conformance/`, 15 cases) | ✅ |
 | MATBOX extensions (`#`, `**`, `endfunction`, `"strings"`) | ✅ |
@@ -380,7 +380,7 @@ endif
 ### Running tests
 
 ```bash
-cargo test                  # all tests (478)
+cargo test                  # all tests (496)
 cargo test -p matbox-core   # core engine tests
 cargo test -p matbox-math   # math tests
 cargo test -p matbox-cli    # conformance suite
