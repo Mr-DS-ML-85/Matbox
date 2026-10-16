@@ -6,6 +6,9 @@ pub enum Tok {
     Imag(f64), // pure-imaginary literal, e.g. 2i or 1.5j
     Ident(String),
     Str(String),
+    /// Double-quoted `"..."` literal — MATBOX's string-type scalar, kept
+    /// distinct from the single-quoted char literal (`Str`).
+    DStr(String),
     Plus,
     Minus,
     Star,
@@ -176,10 +179,15 @@ impl Lexer {
                     let mut s = String::new();
                     while let Some(ch) = self.peek() {
                         if ch == '"' { self.pos += 1; break; }
-                        if ch == '\\' { self.pos += 1; if let Some(e) = self.peek() { s.push(e); self.pos += 1; } }
+                        if ch == '\\' && self.peek2().is_some() {
+                            self.pos += 1;
+                            let e = self.peek().unwrap();
+                            push_escaped(&mut s, e);
+                            self.pos += 1;
+                        }
                         else { s.push(ch); self.pos += 1; }
                     }
-                    self.tokens.push(Tok::Str(s));
+                    self.tokens.push(Tok::DStr(s));
                 }
                 '@' => { self.pos += 1; self.tokens.push(Tok::At); }
                 _ => {
@@ -212,6 +220,13 @@ impl Lexer {
                 if self.peek2() == Some('\'') { s.push('\''); self.pos += 2; continue; }
                 self.pos += 1;
                 return Some(s);
+            }
+            if ch == '\\' && self.peek2().is_some() {
+                self.pos += 1;
+                let e = self.peek().unwrap();
+                push_escaped(&mut s, e);
+                self.pos += 1;
+                continue;
             }
             s.push(ch);
             self.pos += 1;
@@ -250,4 +265,21 @@ fn keyword_or_ident(s: String) -> Tok {
         | "parfor" | "persistent" | "global" | "endfunction" => Tok::Kw(s),
         _ => Tok::Ident(s),
     }
+}
+
+/// Expand one backslash escape into `s`. `\\` and the quote characters stand
+/// for themselves, the usual control characters get their control code, and an
+/// unrecognised escape keeps just the escaped character so a stray backslash
+/// does not silently swallow the following letter.
+fn push_escaped(s: &mut String, e: char) {
+    s.push(match e {
+        'n' => '\n',
+        't' => '\t',
+        'r' => '\r',
+        '0' => '\0',
+        '\\' => '\\',
+        '\'' => '\'',
+        '"' => '"',
+        other => other,
+    });
 }

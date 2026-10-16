@@ -1,0 +1,14 @@
+% mat2str renders a value as source text that parses back to the same value.
+% Scalars come out bare, vectors and matrices are bracketed, rows are separated
+% by semicolons, and logicals keep their true/false spelling so that re-reading
+% the text yields a logical rather than a number.
+disp(mat2str(5));
+disp(mat2str(-3.5));
+disp(mat2str([1 2 3]));
+disp(mat2str([1;2;3]));
+disp(mat2str([1 2;3 4]));
+disp(mat2str([true false]));
+
+% The optional second argument asks for a fixed number of significant digits,
+% which shortens the output at the cost of exactness.
+disp(mat2str(pi, 4));

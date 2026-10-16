@@ -1,0 +1,14 @@
+% fprintf formats its arguments and writes the result to stdout, and reports
+% how many characters it wrote rather than returning the text.
+n = fprintf('%s has %d items\n', 'cart', 3);
+disp(n);
+
+fprintf('plain line\n');
+fprintf('%.2f\n', 3.14159);
+
+% A leading file id of 1 means stdout and 2 means stderr, so the same call can
+% target either stream.
+fprintf(1, 'to stdout\n');
+
+% A format string with no conversions still works, and %% is a literal percent.
+fprintf('100%% done\n');

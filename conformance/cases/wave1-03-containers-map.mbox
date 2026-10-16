@@ -1,0 +1,24 @@
+% A Map binds values to arbitrary unique keys. Keys are not required to be
+% consecutive integers the way plain array indices are. Values are read and
+% written with call-style indexing on the variable itself.
+m = containers.Map();
+m('a') = 1;
+disp(m.Count);
+disp(isKey(m, 'a'));
+
+% Assigning through an existing key overwrites in place instead of adding an
+% entry, so the count stays put.
+m('a') = 42;
+disp(m('a'));
+disp(m.Count);
+
+% keys and values report the entries as cell arrays in a consistent paired
+% order with each other.
+m('b') = 7;
+disp(keys(m));
+disp(values(m));
+
+% Building from a key/value pair is the batch form of the same thing.
+n = containers.Map({'x','y'}, {10,20});
+disp(n('y'));
+disp(n.Count);

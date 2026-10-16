@@ -8,6 +8,106 @@ use matbox_math::{binary_elementwise, reduce, unary_elementwise};
 use num_complex::Complex64;
 use std::io::Write;
 
+/// Inclusive value range of an integer type name, used by the `int*`
+/// constructors to saturate instead of wrapping.
+fn int_range(name: &str) -> (i64, i64) {
+    match name {
+        "int8" => (i8::MIN as i64, i8::MAX as i64),
+        "uint8" => (0, u8::MAX as i64),
+        "int16" => (i16::MIN as i64, i16::MAX as i64),
+        "uint16" => (0, u16::MAX as i64),
+        "int32" => (i32::MIN as i64, i32::MAX as i64),
+        "uint32" => (0, u32::MAX as i64),
+        "uint64" => (0, i64::MAX),
+        _ => (i64::MIN, i64::MAX),
+    }
+}
+
+/// Conversion characters that end the flags/width/precision part of a
+/// printf-style spec.
+const CONVERSIONS: &str = "diouxXeEfFgGsc";
+
+/// Pull a field width and a decimal precision out of the text between `%` and
+/// the conversion character. Absent parts come back as `None`, letting each
+/// conversion apply its own default.
+fn parse_spec(spec: &str) -> (usize, Option<usize>) {
+    let chars: Vec<char> = spec.chars().collect();
+    let mut k = 0usize;
+    while k < chars.len() && matches!(chars[k], '-' | '+' | ' ' | '0' | '#') { k += 1; }
+    let mut width = String::new();
+    while k < chars.len() && chars[k].is_ascii_digit() {
+        width.push(chars[k]);
+        k += 1;
+    }
+    let mut prec = None;
+    if k < chars.len() && chars[k] == '.' {
+        k += 1;
+        let mut p = String::new();
+        while k < chars.len() && chars[k].is_ascii_digit() {
+            p.push(chars[k]);
+            k += 1;
+        }
+        prec = Some(p.parse::<usize>().unwrap_or(6));
+    }
+    (width.parse::<usize>().unwrap_or(0), prec)
+}
+
+/// Fixed-point rendering that keeps the non-finite spellings (`Inf`, `NaN`)
+/// instead of letting the numeric formatter produce `inf` or `nan`.
+fn fmt_float(v: f64, prec: usize) -> String {
+    if v.is_nan() { return "NaN".into(); }
+    if v.is_infinite() { return if v < 0.0 { "-Inf".into() } else { "Inf".into() }; }
+    format!("{:.*}", prec, v)
+}
+
+/// `%g`-style rendering: fixed notation for moderate magnitudes, exponent
+/// notation outside them, trailing zeros dropped.
+fn format_g(v: f64, prec: usize) -> String {
+    if v.is_nan() { return "NaN".into(); }
+    if v.is_infinite() { return if v < 0.0 { "-Inf".into() } else { "Inf".into() }; }
+    if v == 0.0 { return "0".into(); }
+    let exp = v.abs().log10().floor() as i32;
+    if exp < -4 || exp >= prec.max(1) as i32 {
+        let mut s = format!("{:.*e}", prec.saturating_sub(1), v);
+        // Rust writes `1.5e3`; the compact form drops the padding zeros.
+        if let Some(pos) = s.find('e') {
+            let (mant, e) = s.split_at(pos);
+            let mant = trim_zeros(mant);
+            s = format!("{}e{}", mant, e[1..].parse::<i32>().unwrap_or(0));
+        }
+        s
+    } else {
+        let decimals = (prec as i32 - 1 - exp).max(0) as usize;
+        trim_zeros(&format!("{:.*}", decimals, v))
+    }
+}
+
+fn trim_zeros(s: &str) -> String {
+    if !s.contains('.') { return s.to_string(); }
+    let t = s.trim_end_matches('0');
+    t.trim_end_matches('.').to_string()
+}
+
+/// Name of the value's type as MATBOX reports it from `class`. Numbers are
+/// distinguished by their storage, so a logical array does not report as
+/// `double`.
+fn class_name(v: &Value) -> &'static str {
+    match v {
+        Value::Array(a) => match &a.data {
+            MxData::Logical(_) => "logical",
+            MxData::Int64(_) => "int64",
+            MxData::Double(_) | MxData::Complex(_) => "double",
+        },
+        Value::String(_) => "char",
+        Value::Str(_) => "string",
+        Value::Cell(_) => "cell",
+        Value::Struct(_) => "struct",
+        Value::Map(_) => "map",
+        Value::Multi(_) => "cell",
+        Value::Func(..) | Value::FuncRef(_) => "function handle",
+    }
+}
+
 pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Value, EngineError> {
     let a = |i: usize| -> Result<MxArray, EngineError> {
         Ok(args.get(i).ok_or_else(|| EngineError::Msg(format!("{}: not enough input arguments", name)))?.as_array().clone())
@@ -167,8 +267,8 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             };
             Ok(Value::Array(unary_elementwise(&s.as_array().clone(), |c| c / cnt)))
         }
-        "min" => minmax(&a(0)?, args.get(1), false),
-        "max" => minmax(&a(0)?, args.get(1), true),
+        "min" => minmax(&a(0)?, args, false, engine.nargout),
+        "max" => minmax(&a(0)?, args, true, engine.nargout),
         "any" => logical_reduce(&a(0)?, args.get(1), false, |acc, x| acc || x),
         "all" => logical_reduce(&a(0)?, args.get(1), true, |acc, x| acc && x),
         "abs" => elem1!(|c| Complex64::new(c.norm(), 0.0)),
@@ -333,9 +433,22 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
         }
         "sort" => {
             let x = a(0)?;
-            let mut v = x.iter_complex();
-            v.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap());
-            Ok(Value::Array(MxArray::from_complex_colmajor(v, &x.shape)))
+            let src = x.iter_complex();
+            // Sort a permutation rather than the values, so the second output
+            // can report it directly: `A(idx) = sort(A)` restores the input.
+            // Ties keep input order (stable), matching the previous behavior
+            // of sorting the values in place.
+            let mut order: Vec<usize> = (0..src.len()).collect();
+            order.sort_by(|&i, &j| src[i].re.partial_cmp(&src[j].re).unwrap_or(std::cmp::Ordering::Equal));
+            let sorted: Vec<Complex64> = order.iter().map(|&i| src[i]).collect();
+            if engine.nargout >= 2 {
+                let perm: Vec<f64> = order.iter().map(|&i| (i + 1) as f64).collect();
+                return Ok(Value::Multi(vec![
+                    Value::Array(MxArray::from_complex_colmajor(sorted, &x.shape)),
+                    Value::Array(MxArray::from_double_colmajor(perm, &x.shape)),
+                ]));
+            }
+            Ok(Value::Array(MxArray::from_complex_colmajor(sorted, &x.shape)))
         }
         "unique" => {
             let x = a(0)?;
@@ -366,8 +479,8 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
         }
         "nargin" => {
             if n >= 1 {
-                let name = match &args[0] { Value::String(s) => s, _ => return Ok(Value::Array(MxArray::scalar_double(0.0))), };
-                if let Some((inp, _, _)) = engine.functions.get(name) { Ok(Value::Array(MxArray::scalar_double(inp.len() as f64))) }
+                let name = match crate::eval::text_arg(&args[0]) { Some(s) => s, None => return Ok(Value::Array(MxArray::scalar_double(0.0))), };
+                if let Some((inp, _, _)) = engine.functions.get(&name) { Ok(Value::Array(MxArray::scalar_double(inp.len() as f64))) }
                 else { Ok(Value::Array(MxArray::scalar_double(-1.0))) }
             } else {
                 Ok(Value::Array(MxArray::scalar_double(-1.0)))
@@ -375,15 +488,15 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
         }
         "nargout" => {
             if n >= 1 {
-                let name = match &args[0] { Value::String(s) => s, _ => return Ok(Value::Array(MxArray::scalar_double(0.0))), };
-                if let Some((_, out, _)) = engine.functions.get(name) { Ok(Value::Array(MxArray::scalar_double(out.len() as f64))) }
+                let name = match crate::eval::text_arg(&args[0]) { Some(s) => s, None => return Ok(Value::Array(MxArray::scalar_double(0.0))), };
+                if let Some((_, out, _)) = engine.functions.get(&name) { Ok(Value::Array(MxArray::scalar_double(out.len() as f64))) }
                 else { Ok(Value::Array(MxArray::scalar_double(-1.0))) }
             } else {
                 Ok(Value::Array(MxArray::scalar_double(-1.0)))
             }
         }
         "run" => {
-            let filename = match &args[0] { Value::String(s) => s.clone(), _ => return Err(EngineError::Msg("run: argument must be a string".into())) };
+            let filename = match crate::eval::text_arg(&args[0]) { Some(s) => s, None => return Err(EngineError::Msg("run: argument must be a string".into())) };
             let path = if filename.ends_with(".m") { filename } else { format!("{}.m", filename) };
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
@@ -394,9 +507,48 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             let (_, disp) = engine.exec_block(&stmts)?;
             Ok(disp.unwrap_or(Value::Array(MxArray::new_double(&[0, 0]))))
         }
+        "rethrow" => {
+            // Re-raises a caught exception with its original identifier intact,
+            // so wrapping a block in try/catch does not flatten the error.
+            let st = match args.first() {
+                Some(Value::Struct(m)) => m,
+                _ => return Err(EngineError::Msg("rethrow: argument must be a caught exception".into())),
+            };
+            let field = |k: &str| st.get(k)
+                .and_then(|v| crate::eval::text_arg(v))
+                .unwrap_or_default();
+            Err(EngineError::Exception { identifier: field("identifier"), message: field("message") })
+        }
         "error" => {
-            let msg = format_value(&args[0]);
-            Err(EngineError::Msg(msg))
+            // error(id, fmt, arg1, ...) — id is a `component:mnemonic` token,
+            // fmt is sprintf-formatted with the remaining args, and the
+            // thrown exception carries `id` as its identifier.
+            // error(fmt, arg1, ...) — same sprintf formatting, but with no
+            // leading id the identifier is empty.
+            // error(msg) — single argument: literal text, no escape/format
+            // expansion (nothing triggers sprintf processing).
+            if n == 0 { return Err(EngineError::Msg("error: not enough input arguments".into())); }
+            let first = match &args[0] {
+                Value::String(s) => s.clone(),
+                Value::Str(g) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
+                other => format_value(other),
+            };
+            if is_error_identifier(&first) && n >= 2 {
+                let msg = match call("sprintf", &args[1..], engine) {
+                    Ok(Value::String(s)) => s,
+                    Ok(Value::Str(g)) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
+                    _ => format_value(&args[1]),
+                };
+                return Err(EngineError::Exception { identifier: first, message: msg });
+            }
+            if n >= 2 {
+                let msg = match call("sprintf", args, engine) {
+                    Ok(Value::String(s)) => s,
+                    _ => first,
+                };
+                return Err(EngineError::Exception { identifier: String::new(), message: msg });
+            }
+            Err(EngineError::Exception { identifier: String::new(), message: first })
         }
         "assert" => {
             if n == 0 {
@@ -444,25 +596,25 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             if n == 0 { engine.workspace.clear(); engine.reset_constants(); }
             else {
                 for arg in args {
-                    if let Value::String(s) = arg { engine.workspace.remove(s); }
+                    if let Some(s) = crate::eval::text_arg(arg) { engine.workspace.remove(&s); }
                 }
             }
             Ok(Value::Array(MxArray::new_double(&[0, 0])))
         }
         "exist" => {
-            let name = if let Value::String(s) = &args[0] { s } else { return Ok(Value::Array(MxArray::scalar_double(0.0))); };
-            Ok(Value::Array(MxArray::scalar_double(if engine.workspace.contains_key(name) { 1.0 } else { 0.0 })))
+            let name = match crate::eval::text_arg(&args[0]) { Some(s) => s, None => return Ok(Value::Array(MxArray::scalar_double(0.0))) };
+            Ok(Value::Array(MxArray::scalar_double(if engine.workspace.contains_key(&name) { 1.0 } else { 0.0 })))
         }
         "format" => {
-            if n >= 1 { if let Value::String(s) = &args[0] { engine.format = s.clone(); } }
+            if n >= 1 { if let Some(s) = crate::eval::text_arg(&args[0]) { engine.format = s; } }
             Ok(Value::Array(MxArray::new_double(&[0, 0])))
         }
         "struct" => {
             let mut map = std::collections::HashMap::new();
             for i in (0..n).step_by(2) {
-                let field = match &args[i] {
-                    Value::String(s) => s.clone(),
-                    _ => return Err(EngineError::Msg("struct field names must be strings".into())),
+                let field = match crate::eval::text_arg(&args[i]) {
+                    Some(s) => s,
+                    None => return Err(EngineError::Msg("struct field names must be strings".into())),
                 };
                 let val = if i + 1 < n { args[i + 1].clone() } else { Value::Array(MxArray::new_double(&[0, 0])) };
                 map.insert(field, val);
@@ -472,11 +624,11 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
         "isfield" => {
             let contains = match &args[0] {
                 Value::Struct(m) => {
-                    let f = match &args[1] {
-                        Value::String(s) => s,
-                        _ => return Err(EngineError::Msg("isfield: second argument must be a string".into())),
+                    let f = match crate::eval::text_arg(&args[1]) {
+                        Some(s) => s,
+                        None => return Err(EngineError::Msg("isfield: second argument must be a string".into())),
                     };
-                    m.contains_key(f)
+                    m.contains_key(&f)
                 }
                 _ => false,
             };
@@ -501,31 +653,52 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             // find of a row vector yields a row vector; otherwise a column (MATLAB).
             let is_row = x.ndims() == 2 && x.shape[0] == 1;
             let shape = if is_row { [1, n] } else { [n, 1] };
+            // `[i, j] = find(X)` replaces the linear output with separate row
+            // and column indices, both column-shaped, so callers can index
+            // each axis without redoing the conversion themselves.
+            if engine.nargout >= 2 {
+                let m = x.shape[0].max(1);
+                let mut rows = Vec::with_capacity(n);
+                let mut cols = Vec::with_capacity(n);
+                for &li in &idx {
+                    let l = (li as usize).saturating_sub(1);
+                    rows.push((l % m + 1) as f64);
+                    cols.push((l / m + 1) as f64);
+                }
+                return Ok(Value::Multi(vec![
+                    Value::Array(MxArray::from_double_colmajor(rows, &[n, 1])),
+                    Value::Array(MxArray::from_double_colmajor(cols, &[n, 1])),
+                ]));
+            }
             Ok(Value::Array(MxArray::from_double_colmajor(idx, &shape)))
         }
         "strcmp" => {
-            let s1 = match &args[0] { Value::String(s) => s, _ => "unimplemented" };
-            let s2 = match &args[1] { Value::String(s) => s, _ => "unimplemented" };
+            let s1 = crate::eval::text_arg(&args[0]).unwrap_or_else(|| "unimplemented".into());
+            let s2 = crate::eval::text_arg(&args[1]).unwrap_or_else(|| "unimplemented".into());
             Ok(Value::Array(logical_scalar(s1 == s2)))
         }
         "strcmpi" => {
-            let s1 = match &args[0] { Value::String(s) => s, _ => "unimplemented" };
-            let s2 = match &args[1] { Value::String(s) => s, _ => "unimplemented" };
+            let s1 = crate::eval::text_arg(&args[0]).unwrap_or_else(|| "unimplemented".into());
+            let s2 = crate::eval::text_arg(&args[1]).unwrap_or_else(|| "unimplemented".into());
             Ok(Value::Array(logical_scalar(s1.to_lowercase() == s2.to_lowercase())))
         }
         "upper" => {
-            let s = match &args[0] {
-                Value::String(s) => s.to_uppercase(),
-                Value::Array(a) if a.is_scalar() => format!("{}", a.to_scalar()).to_uppercase(),
-                _ => return Err(EngineError::Msg("upper: argument must be a string".into())),
+            let s = match crate::eval::text_arg(&args[0]) {
+                Some(s) => s.to_uppercase(),
+                None => match &args[0] {
+                    Value::Array(a) if a.is_scalar() => format!("{}", a.to_scalar()).to_uppercase(),
+                    _ => return Err(EngineError::Msg("upper: argument must be a string".into())),
+                },
             };
             Ok(Value::String(s))
         }
         "lower" => {
-            let s = match &args[0] {
-                Value::String(s) => s.to_lowercase(),
-                Value::Array(a) if a.is_scalar() => format!("{}", a.to_scalar()).to_lowercase(),
-                _ => return Err(EngineError::Msg("lower: argument must be a string".into())),
+            let s = match crate::eval::text_arg(&args[0]) {
+                Some(s) => s.to_lowercase(),
+                None => match &args[0] {
+                    Value::Array(a) if a.is_scalar() => format!("{}", a.to_scalar()).to_lowercase(),
+                    _ => return Err(EngineError::Msg("lower: argument must be a string".into())),
+                },
             };
             Ok(Value::String(s))
         }
@@ -548,11 +721,17 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             }
             Ok(Value::String(parts.join(" ")))
         }
+        "mat2str" => {
+            let prec = if n >= 2 { Some(a(1)?.to_scalar() as usize) } else { None };
+            Ok(Value::String(mat2str_value(&args[0], prec)))
+        }
         "str2double" => {
-            let s = match &args[0] {
-                Value::String(s) => s,
-                Value::Array(a) if a.numel() == 1 => return Ok(Value::Array(a.clone())),
-                _ => return Err(EngineError::Msg("str2double: argument must be a string".into())),
+            let s = match crate::eval::text_arg(&args[0]) {
+                Some(s) => s,
+                None => match &args[0] {
+                    Value::Array(a) if a.numel() == 1 => return Ok(Value::Array(a.clone())),
+                    _ => return Err(EngineError::Msg("str2double: argument must be a string".into())),
+                },
             };
             match s.trim().parse::<f64>() {
                 Ok(v) => Ok(Value::Array(MxArray::scalar_double(v))),
@@ -560,38 +739,42 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             }
         }
         "contains" => {
-            let s = match &args[0] { Value::String(s) => s, _ => return Err(EngineError::Msg("contains: first argument must be a string".into())) };
-            let pat = match &args[1] { Value::String(p) => p, _ => return Err(EngineError::Msg("contains: second argument must be a string".into())) };
+            let s = crate::eval::text_arg(&args[0]).ok_or_else(|| EngineError::Msg("contains: first argument must be a string".into()))?;
+            let pat = crate::eval::text_arg(&args[1]).ok_or_else(|| EngineError::Msg("contains: second argument must be a string".into()))?;
             Ok(Value::Array(logical_scalar(s.contains(pat.as_str()))))
         }
         "startsWith" | "startswith" => {
-            let s = match &args[0] { Value::String(s) => s, _ => return Err(EngineError::Msg("startsWith: first argument must be a string".into())) };
-            let pat = match &args[1] { Value::String(p) => p, _ => return Err(EngineError::Msg("startsWith: second argument must be a string".into())) };
+            let s = crate::eval::text_arg(&args[0]).ok_or_else(|| EngineError::Msg("startsWith: first argument must be a string".into()))?;
+            let pat = crate::eval::text_arg(&args[1]).ok_or_else(|| EngineError::Msg("startsWith: second argument must be a string".into()))?;
             Ok(Value::Array(logical_scalar(s.starts_with(pat.as_str()))))
         }
         "endsWith" | "endswith" => {
-            let s = match &args[0] { Value::String(s) => s, _ => return Err(EngineError::Msg("endsWith: first argument must be a string".into())) };
-            let pat = match &args[1] { Value::String(p) => p, _ => return Err(EngineError::Msg("endsWith: second argument must be a string".into())) };
+            let s = crate::eval::text_arg(&args[0]).ok_or_else(|| EngineError::Msg("endsWith: first argument must be a string".into()))?;
+            let pat = crate::eval::text_arg(&args[1]).ok_or_else(|| EngineError::Msg("endsWith: second argument must be a string".into()))?;
             Ok(Value::Array(logical_scalar(s.ends_with(pat.as_str()))))
         }
         "strtrim" => {
-            let s = match &args[0] { Value::String(s) => s, _ => return Err(EngineError::Msg("strtrim: argument must be a string".into())) };
+            let s = crate::eval::text_arg(&args[0]).ok_or_else(|| EngineError::Msg("strtrim: argument must be a string".into()))?;
             Ok(Value::String(s.trim().to_string()))
         }
         "deblank" => {
-            let s = match &args[0] { Value::String(s) => s, _ => return Err(EngineError::Msg("deblank: argument must be a string".into())) };
+            let s = crate::eval::text_arg(&args[0]).ok_or_else(|| EngineError::Msg("deblank: argument must be a string".into()))?;
             Ok(Value::String(s.trim_end().to_string()))
         }
         "strsplit" => {
-            let s = match &args[0] { Value::String(s) => s, _ => return Err(EngineError::Msg("strsplit: first argument must be a string".into())) };
-            let delim = if args.len() > 1 { match &args[1] { Value::String(d) => d.clone(), _ => return Err(EngineError::Msg("strsplit: delimiter must be a string".into())) } } else { " ".into() };
+            let s = crate::eval::text_arg(&args[0]).ok_or_else(|| EngineError::Msg("strsplit: first argument must be a string".into()))?;
+            let delim = if args.len() > 1 {
+                crate::eval::text_arg(&args[1]).ok_or_else(|| EngineError::Msg("strsplit: delimiter must be a string".into()))?
+            } else { " ".into() };
             let parts: Vec<Value> = s.split(&delim).map(|p| Value::String(p.to_string())).collect();
             Ok(Value::Cell(vec![parts]))
         }
         "strjoin" => {
             let parts = match &args[0] { Value::Cell(rows) if rows.len() == 1 => rows[0].clone(), _ => return Err(EngineError::Msg("strjoin: first argument must be a cell array of strings".into())) };
-            let delim = if args.len() > 1 { match &args[1] { Value::String(d) => d.clone(), _ => return Err(EngineError::Msg("strjoin: delimiter must be a string".into())) } } else { "".into() };
-            let strings: Vec<&str> = parts.iter().map(|v| match v { Value::String(s) => s.as_str(), _ => "" }).collect();
+            let delim = if args.len() > 1 {
+                crate::eval::text_arg(&args[1]).ok_or_else(|| EngineError::Msg("strjoin: delimiter must be a string".into()))?
+            } else { "".into() };
+            let strings: Vec<String> = parts.iter().map(|v| crate::eval::text_arg(v).unwrap_or_default()).collect();
             Ok(Value::String(strings.join(&delim)))
         }
         "num2cell" => {
@@ -607,50 +790,197 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             Ok(Value::Cell(rows))
         }
         "sprintf" => {
-            let fmt = match &args[0] { Value::String(s) => s, _ => return Err(EngineError::Msg("sprintf: first argument must be a format string".into())) };
+            let fmt = match &args[0] {
+                Value::String(s) => s.clone(),
+                Value::Str(g) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
+                _ => return Err(EngineError::Msg("sprintf: first argument must be a format string".into())),
+            };
             let mut result = String::new();
-            let mut fmt_iter = fmt.chars().peekable();
+            let chars: Vec<char> = fmt.chars().collect();
             let mut arg_idx = 1usize;
-            while let Some(ch) = fmt_iter.next() {
-                if ch == '%' && fmt_iter.peek() != Some(&'%') {
-                    let spec = fmt_iter.next().unwrap_or(' ');
-                    let val = if arg_idx < args.len() {
-                        match &args[arg_idx] {
-                            Value::Array(a) if a.is_scalar() => format!("{}", a.to_scalar()),
-                            Value::String(s) => s.clone(),
-                            _ => "?".into(),
-                        }
-                    } else { "?".into() };
-                    match spec {
-                        'd' | 'i' => {
-                            if arg_idx < args.len() {
-                                let n = match &args[arg_idx] {
-                                    Value::Array(a) if a.is_scalar() => a.to_scalar() as i64,
-                                    _ => 0,
-                                };
-                                result.push_str(&format!("{}", n));
-                            }
-                        }
-                        'f' | 'g' | 'e' => result.push_str(&val),
-                        's' => result.push_str(&val),
-                        _ => { result.push('%'); result.push(spec); }
-                    }
-                    arg_idx += 1;
-                } else if ch == '%' && fmt_iter.peek() == Some(&'%') {
+            let mut i = 0usize;
+            while i < chars.len() {
+                let ch = chars[i];
+                if ch == '%' && i + 1 < chars.len() && chars[i + 1] == '%' {
                     result.push('%');
-                    fmt_iter.next();
-                } else {
-                    result.push(ch);
+                    i += 2;
+                    continue;
                 }
+                if ch == '%' {
+                    // Gather flags, width and precision up to the conversion
+                    // character, so `%.2f` and `%5d` are honoured instead of
+                    // being echoed back verbatim.
+                    let mut spec = String::new();
+                    i += 1;
+                    while i < chars.len() && !CONVERSIONS.contains(chars[i]) {
+                        spec.push(chars[i]);
+                        i += 1;
+                    }
+                    if i >= chars.len() {
+                        // Truncated format: emit what was read rather than
+                        // silently dropping the tail.
+                        result.push('%');
+                        result.push_str(&spec);
+                        break;
+                    }
+                    let conv = chars[i];
+                    i += 1;
+                    let (width, prec) = parse_spec(&spec);
+                    let arg = args.get(arg_idx);
+                    let rendered: String;
+                    match conv {
+                        'd' | 'i' => {
+                            let n = match arg {
+                                Some(Value::Array(a)) if a.is_scalar() => a.to_scalar().trunc() as i64,
+                                Some(Value::String(s)) => s.parse::<i64>().unwrap_or(0),
+                                _ => 0,
+                            };
+                            rendered = n.to_string();
+                        }
+                        'f' | 'F' | 'e' | 'E' | 'g' | 'G' => {
+                            let v = match arg {
+                                Some(Value::Array(a)) if a.is_scalar() => a.to_scalar(),
+                                _ => 0.0,
+                            };
+                            // A float conversion defaults to six decimals when
+                            // the format does not ask for a precision.
+                            let body = match conv {
+                                'f' | 'F' => fmt_float(v, prec.unwrap_or(6)),
+                                'e' => format!("{:.*e}", prec.unwrap_or(6), v),
+                                'E' => format!("{:.*E}", prec.unwrap_or(6), v),
+                                _ => format_g(v, prec.unwrap_or(6)),
+                            };
+                            rendered = if conv == 'g' || conv == 'G' {
+                                body.to_uppercase()
+                            } else { body };
+                        }
+                        's' => {
+                            rendered = match arg {
+                                Some(Value::Array(a)) if a.is_scalar() => format_value(arg.unwrap()),
+                                Some(Value::String(s)) => s.clone(),
+                                Some(Value::Str(g)) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
+                                _ => String::new(),
+                            };
+                        }
+                        'c' => {
+                            rendered = match arg {
+                                Some(Value::String(s)) => s.chars().next().map(|c| c.to_string()).unwrap_or_default(),
+                                Some(Value::Array(a)) if a.is_scalar() => {
+                                    char::from_u32(a.to_scalar() as u32).map(|c| c.to_string()).unwrap_or_default()
+                                }
+                                _ => String::new(),
+                            };
+                        }
+                        _ => { result.push('%'); result.push_str(&spec); result.push(conv); continue; }
+                    }
+                    if rendered.chars().count() < width {
+                        let pad = " ".repeat(width - rendered.chars().count());
+                        result.push_str(&pad);
+                    }
+                    result.push_str(&rendered);
+                    arg_idx += 1;
+                    continue;
+                }
+                // Literal text, with the usual backslash escapes expanded.
+                if ch == '\\' && i + 1 < chars.len() {
+                    let esc = chars[i + 1];
+                    i += 2;
+                    result.push(match esc {
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '0' => '\0',
+                        '\\' => '\\',
+                        other => other,
+                    });
+                    continue;
+                }
+                result.push(ch);
+                i += 1;
             }
             Ok(Value::String(result))
         }
+        "fprintf" => {
+            // fprintf(fmt, ...) writes to stdout; a leading scalar 1 or 2
+            // selects stdout or stderr instead of being part of the format.
+            // Any other leading number is not a file id, so the whole argument
+            // list is treated as format-plus-values rather than guessed at.
+            let (dest, rest) = match args.first() {
+                Some(Value::Array(arr)) if arr.is_scalar() => match arr.to_scalar() {
+                    1.0 => (1, &args[1..]),
+                    2.0 => (2, &args[1..]),
+                    _ => (1, &args[..]),
+                },
+                _ => (1, &args[..]),
+            };
+            let out = match call("sprintf", rest, engine) {
+                Ok(Value::String(s)) => s,
+                Ok(Value::Str(g)) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
+                _ => return Err(EngineError::Msg(
+                    "fprintf: first argument must be a format string".into())),
+            };
+            if dest == 2 {
+                eprint!("{}", out);
+            } else {
+                print!("{}", out);
+                // A partial line would otherwise sit in the buffer, so a REPL
+                // caller waiting on the output would see nothing.
+                let _ = std::io::stdout().flush();
+            }
+            // Returns the number of characters written, not the text.
+            Ok(Value::Array(MxArray::scalar_double(out.chars().count() as f64)))
+        }
+        "class" => {
+            let v = args.first().ok_or_else(|| EngineError::Msg(
+                "class: not enough input arguments".into()))?;
+            Ok(Value::String(class_name(v).to_string()))
+        }
+        // Integer constructors. Every integer width shares one `Int64`
+        // storage, so narrowing saturates to the target range here rather than
+        // wrapping; `class` therefore reports `int64` for all of them.
+        "int8" | "uint8" | "int16" | "uint16" | "int32" | "uint32" | "int64" | "uint64" => {
+            let (lo, hi) = int_range(name);
+            let x = a(0)?;
+            let out: Vec<i64> = x.iter_complex().iter()
+                .map(|c| {
+                    let r = c.re.round();
+                    if r.is_nan() { 0 }
+                    else if r <= lo as f64 { lo }
+                    else if r >= hi as f64 { hi }
+                    else { r as i64 }
+                })
+                .collect();
+            Ok(Value::Array(MxArray::from_int64_colmajor(out, &x.shape)))
+        }
+        "idivide" => {
+            let x = a(0)?;
+            let y = a(1)?;
+            if y.iter_complex().iter().any(|c| c.re == 0.0) {
+                return Err(EngineError::Msg("idivide: division by zero".into()));
+            }
+            let xv = x.iter_complex();
+            let yv = y.iter_complex();
+            // A scalar on either side broadcasts; otherwise the two must be the
+            // same length, since there is no general expansion here. The
+            // non-scalar side supplies the output length, and the scalar side
+            // is always the divisor — never the other way round.
+            let out: Vec<i64> = if yv.len() == 1 {
+                let d = yv[0];
+                xv.iter().map(|n| (n.re / d.re).trunc() as i64).collect()
+            } else if xv.len() == 1 {
+                let n = xv[0];
+                yv.iter().map(|d| (n.re / d.re).trunc() as i64).collect()
+            } else if xv.len() == yv.len() {
+                xv.iter().zip(yv.iter()).map(|(n, d)| (n.re / d.re).trunc() as i64).collect()
+            } else {
+                return Err(EngineError::Msg("idivide: nonconformant arguments".into()));
+            };
+            let shape = if xv.len() == 1 && yv.len() > 1 { &y.shape } else { &x.shape };
+            Ok(Value::Array(MxArray::from_int64_colmajor(out, shape)))
+        }
         "cumsum" => {
             let x = a(0)?;
-            let dim = match args.get(1) {
-                Some(v) => v.as_array().to_scalar() as usize,
-                None => x.shape.iter().enumerate().find(|(_, &s)| s != 1).map(|(i, _)| i + 1).unwrap_or(1),
-            };
+            let dim = dim_from_args(&x, args, 1);
             let nd = x.ndims();
             if dim > nd || dim < 1 {
                 return Err(EngineError::Msg("cumsum: dimension out of range".into()));
@@ -673,10 +1003,7 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
         }
         "cumprod" => {
             let x = a(0)?;
-            let dim = match args.get(1) {
-                Some(v) => v.as_array().to_scalar() as usize,
-                None => x.shape.iter().enumerate().find(|(_, &s)| s != 1).map(|(i, _)| i + 1).unwrap_or(1),
-            };
+            let dim = dim_from_args(&x, args, 1);
             let nd = x.ndims();
             if dim > nd || dim < 1 {
                 return Err(EngineError::Msg("cumprod: dimension out of range".into()));
@@ -699,10 +1026,7 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
         }
         "diff" => {
             let x = a(0)?;
-            let dim = match args.get(1) {
-                Some(v) => v.as_array().to_scalar() as usize,
-                None => x.shape.iter().enumerate().find(|(_, &s)| s != 1).map(|(i, _)| i + 1).unwrap_or(1),
-            };
+            let dim = dim_from_args(&x, args, 1);
             let nd = x.ndims();
             if dim > nd || dim < 1 {
                 return Err(EngineError::Msg("diff: dimension out of range".into()));
@@ -742,7 +1066,7 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             let mut data: Vec<&Value> = Vec::new();
             let mut i = 1;
             while i < args.len() {
-                if let Value::String(s) = &args[i] {
+                if let Some(s) = crate::eval::text_arg(&args[i]) {
                     if s.eq_ignore_ascii_case("UniformOutput") && i + 1 < args.len() {
                         uniform = engine.is_true(&args[i + 1]); i += 2; continue;
                     }
@@ -803,6 +1127,70 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
         }
         "ischar" => {
             Ok(Value::Array(logical_scalar(matches!(&args[0], Value::String(_)))))
+        }
+        "isstring" => {
+            Ok(Value::Array(logical_scalar(matches!(&args[0], Value::Str(_)))))
+        }
+        "strlength" => {
+            match &args[0] {
+                Value::Str(rows) => {
+                    let m = rows.len();
+                    let nn = if m > 0 { rows[0].len() } else { 0 };
+                    let mut buf = Vec::with_capacity(m * nn);
+                    for j in 0..nn { for i in 0..m { buf.push(rows[i][j].chars().count() as f64); } }
+                    Ok(Value::Array(MxArray::from_double_colmajor(buf, &[m, nn])))
+                }
+                Value::String(s) => Ok(Value::Array(MxArray::scalar_double(s.chars().count() as f64))),
+                _ => Err(EngineError::Msg("strlength: argument must be a string".into())),
+            }
+        }
+        "string" => {
+            match &args[0] {
+                Value::Str(_) => Ok(args[0].clone()),
+                Value::String(s) => Ok(Value::Str(vec![vec![s.clone()]])),
+                Value::Array(a) if a.is_scalar() => Ok(Value::Str(vec![vec![format!("{}", a.to_scalar())]])),
+                Value::Array(a) => {
+                    let m = a.shape[0];
+                    let nn = a.shape.get(1).copied().unwrap_or(1);
+                    let mut rows = vec![vec![String::new(); nn]; m];
+                    for i in 0..m { for j in 0..nn { rows[i][j] = format!("{}", a.get_double(&[i, j])); } }
+                    Ok(Value::Str(rows))
+                }
+                Value::Cell(rows) => {
+                    let out: Vec<Vec<String>> = rows.iter().map(|r| r.iter().map(|v| match v {
+                        Value::String(s) => s.clone(),
+                        Value::Str(g) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
+                        other => format_value(other),
+                    }).collect()).collect();
+                    Ok(Value::Str(out))
+                }
+                other => Ok(Value::Str(vec![vec![format_value(other)]])),
+            }
+        }
+        // ── containers.Map ──
+        "keys" => {
+            let m = match &args[0] { Value::Map(entries) => entries, _ => return Err(EngineError::Msg("keys: argument must be a containers.Map".into())) };
+            Ok(Value::Cell(vec![m.iter().map(|(k, _)| k.clone()).collect()]))
+        }
+        "values" => {
+            let m = match &args[0] { Value::Map(entries) => entries, _ => return Err(EngineError::Msg("values: argument must be a containers.Map".into())) };
+            Ok(Value::Cell(vec![m.iter().map(|(_, v)| v.clone()).collect()]))
+        }
+        "isKey" => {
+            let m = match &args[0] { Value::Map(entries) => entries, _ => return Err(EngineError::Msg("isKey: first argument must be a containers.Map".into())) };
+            match &args[1] {
+                Value::Cell(rows) => {
+                    let flat = crate::eval::flatten_row_major(rows);
+                    let res: Vec<bool> = flat.iter().map(|k| m.iter().any(|(mk, _)| crate::eval::map_key_eq(mk, k))).collect();
+                    let nn = res.len();
+                    let mut out = MxArray::new_logical(&[1, nn]);
+                    if let MxData::Logical(d) = &mut out.data {
+                        for (i, v) in res.iter().enumerate() { d[i] = *v; }
+                    }
+                    Ok(Value::Array(out))
+                }
+                key => Ok(Value::Array(logical_scalar(m.iter().any(|(mk, _)| crate::eval::map_key_eq(mk, key))))),
+            }
         }
         "islogical" => {
             let a = a(0)?;
@@ -985,9 +1373,9 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
                 Value::Struct(m) => m.clone(),
                 _ => return Err(EngineError::Msg("rmfield: first argument must be a struct".into())),
             };
-            let field = match &args.get(1) {
-                Some(Value::String(f)) => f.clone(),
-                _ => return Err(EngineError::Msg("rmfield: second argument must be a field name".into())),
+            let field = match args.get(1).and_then(crate::eval::text_arg) {
+                Some(f) => f,
+                None => return Err(EngineError::Msg("rmfield: second argument must be a field name".into())),
             };
             let mut out = s;
             out.remove(&field);
@@ -1008,12 +1396,12 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
         }
         // ── String operations ──
         "strfind" => {
-            let s = match args.first() { Some(Value::String(s)) => s.as_str(), _ => "" };
-            let pat = match args.get(1) { Some(Value::String(p)) => p.as_str(), _ => "" };
+            let s = args.first().and_then(crate::eval::text_arg).unwrap_or_default();
+            let pat = args.get(1).and_then(crate::eval::text_arg).unwrap_or_default();
             if pat.is_empty() { return Ok(Value::Array(MxArray::scalar_double(1.0))); }
             let mut indices = Vec::new();
             let mut start = 0;
-            while let Some(pos) = s[start..].find(pat) {
+            while let Some(pos) = s[start..].find(&pat) {
                 indices.push((start + pos + 1) as f64);
                 start += pos + 1;
             }
@@ -1022,14 +1410,16 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             Ok(Value::Array(out))
         }
         "strrep" => {
-            let s = match args.first() { Some(Value::String(s)) => s.as_str(), _ => "" };
-            let old = match args.get(1) { Some(Value::String(s)) => s.as_str(), _ => "" };
-            let new = match args.get(2) { Some(Value::String(s)) => s.as_str(), _ => "" };
-            Ok(Value::String(s.replace(old, new)))
+            let s = args.first().and_then(crate::eval::text_arg).unwrap_or_default();
+            let old = args.get(1).and_then(crate::eval::text_arg).unwrap_or_default();
+            let new = args.get(2).and_then(crate::eval::text_arg).unwrap_or_default();
+            Ok(Value::String(s.replace(&old, &new)))
         }
         "regexp" | "regexpi" => {
-            let s = match args.first() { Some(Value::String(s)) => s.as_str(), _ => "" };
-            let pat = match args.get(1) { Some(Value::String(s)) => s.as_str(), _ => "" };
+            let s = args.first().and_then(crate::eval::text_arg).unwrap_or_default();
+            let pat = args.get(1).and_then(crate::eval::text_arg).unwrap_or_default();
+            let s = s.as_str();
+            let pat = pat.as_str();
             let case_insensitive = name == "regexpi";
             let re = if case_insensitive {
                 regex::RegexBuilder::new(pat).case_insensitive(true).build()
@@ -1064,9 +1454,9 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             }
         }
         "regexprep" => {
-            let s = match args.first() { Some(Value::String(st)) => st.clone(), _ => String::new() };
-            let pat = match args.get(1) { Some(Value::String(st)) => st.clone(), _ => String::new() };
-            let rep = match args.get(2) { Some(Value::String(st)) => st.clone(), _ => String::new() };
+            let s = args.first().and_then(crate::eval::text_arg).unwrap_or_default();
+            let pat = args.get(1).and_then(crate::eval::text_arg).unwrap_or_default();
+            let rep = args.get(2).and_then(crate::eval::text_arg).unwrap_or_default();
             match regex::Regex::new(&pat) {
                 Ok(re) => Ok(Value::String(re.replace_all(&s, rep).to_string())),
                 Err(_) => Ok(Value::String(s)),
@@ -1603,6 +1993,22 @@ fn arg_str(a: &MxArray) -> String {
     String::new()
 }
 
+/// Whether `s` reads as a `component:mnemonic` error identifier: two or more
+/// colon-separated tokens, each starting with a letter and continuing with
+/// letters/digits/underscores, and no spaces anywhere.
+fn is_error_identifier(s: &str) -> bool {
+    if s.is_empty() || s.contains(' ') { return false; }
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() < 2 { return false; }
+    parts.iter().all(|p| {
+        let mut chars = p.chars();
+        match chars.next() {
+            Some(c) if c.is_ascii_alphabetic() => chars.all(|c| c.is_ascii_alphanumeric() || c == '_'),
+            _ => false,
+        }
+    })
+}
+
 fn logical_scalar(b: bool) -> MxArray {
     let mut a = MxArray::new_logical(&[1, 1]);
     if let MxData::Logical(d) = &mut a.data { d[0] = b; }
@@ -1667,11 +2073,34 @@ fn logical_reduce(x: &MxArray, dim_arg: Option<&Value>, init_val: bool, f: impl 
     Ok(Value::Array(r))
 }
 
-fn minmax(x: &MxArray, dim_arg: Option<&Value>, is_max: bool) -> Result<Value, EngineError> {
-    let dim = match dim_arg {
-        Some(v) => v.as_array().to_scalar() as usize,
-        None => x.shape.iter().enumerate().find(|(_, &s)| s != 1).map(|(i, _)| i + 1).unwrap_or(1),
+/// First axis that is not a singleton: the axis a reduction collapses when the
+/// caller does not name one.
+fn default_dim(x: &MxArray) -> usize {
+    x.shape.iter().enumerate().find(|(_, &s)| s != 1).map(|(i, _)| i + 1).unwrap_or(1)
+}
+
+/// Read a reduction axis from an argument list. An empty array is the
+/// documented placeholder in `f(A, [], dim)`, so the axis named *after* it is
+/// used; with nothing after it the default axis applies. Reading the empty
+/// array as a scalar would index into an array that holds no elements.
+fn dim_from_args(x: &MxArray, args: &[Value], pos: usize) -> usize {
+    let scalar_dim = |v: Option<&Value>| -> Option<usize> {
+        match v {
+            Some(Value::Array(a)) if a.numel() > 0 => Some(a.to_scalar() as usize),
+            _ => None,
+        }
     };
+    match args.get(pos) {
+        // Empty placeholder: the real axis is the argument after it.
+        Some(Value::Array(a)) if a.numel() == 0 => {
+            scalar_dim(args.get(pos + 1)).unwrap_or_else(|| default_dim(x))
+        }
+        other => scalar_dim(other).unwrap_or_else(|| default_dim(x)),
+    }
+}
+
+fn minmax(x: &MxArray, args: &[Value], is_max: bool, n_out: usize) -> Result<Value, EngineError> {
+    let dim = dim_from_args(x, args, 1);
     let init = if is_max { Complex64::new(f64::NEG_INFINITY, 0.0) } else { Complex64::new(f64::INFINITY, 0.0) };
     let f: fn(Complex64, Complex64) -> Complex64 = if is_max {
         |a, b| if a.re >= b.re { a } else { b }
@@ -1679,7 +2108,52 @@ fn minmax(x: &MxArray, dim_arg: Option<&Value>, is_max: bool) -> Result<Value, E
         |a, b| if a.re <= b.re { a } else { b }
     };
     let r = reduce(x, dim, init, f);
+    // `[m, i] = max(x)` adds the position of the extremum as a second output,
+    // shaped like the value array so the two line up element-wise.
+    if n_out >= 2 {
+        return Ok(Value::Multi(vec![
+            Value::Array(r),
+            Value::Array(extremum_index(x, dim, is_max)),
+        ]));
+    }
     Ok(Value::Array(r))
+}
+
+/// 1-based position along `dim` of each extremum, matching the shape that
+/// `reduce` produces for the values (the reduced dimension stays a singleton).
+/// Column-major traversal visits each output slot's candidates in increasing
+/// index order, so keeping the incumbent on ties reports the first occurrence.
+fn extremum_index(x: &MxArray, dim: usize, is_max: bool) -> MxArray {
+    let ndim = x.ndims();
+    let d = dim.min(ndim).max(1) - 1;
+    let mut out_shape = x.shape.clone();
+    out_shape[d] = 1;
+    while out_shape.len() < 2 { out_shape.push(1); }
+    let out_strides = MxArray::col_strides(&out_shape);
+    let n: usize = out_shape.iter().product();
+    let mut best = vec![Complex64::new(0.0, 0.0); n];
+    let mut idx = vec![1.0f64; n];
+    let mut seen = vec![false; n];
+    for lin in 0..x.numel() {
+        let mut mi = vec![0usize; ndim];
+        let mut rem = lin;
+        for k in 0..ndim { mi[k] = rem % x.shape[k]; rem /= x.shape[k]; }
+        let mut oi = 0usize;
+        for k in 0..ndim {
+            if k == d { continue; }
+            oi += mi[k] * out_strides[k];
+        }
+        let v = x.get_complex(&mi);
+        let better = if !seen[oi] { true }
+            else if is_max { v.re > best[oi].re }
+            else { v.re < best[oi].re };
+        if better {
+            seen[oi] = true;
+            best[oi] = v;
+            idx[oi] = (mi[d] + 1) as f64;
+        }
+    }
+    MxArray::from_double_colmajor(idx, &out_shape)
 }
 
 fn magic_square(n: usize) -> MxArray {
@@ -1757,7 +2231,12 @@ fn value_shape(v: &Value) -> Vec<usize> {
             let n = if m > 0 { rows[0].len() } else { 0 };
             vec![m, n]
         }
-        Value::Struct(_) | Value::Func(_, _, _) | Value::FuncRef(_) => vec![1, 1],
+        Value::Str(rows) => {
+            let m = rows.len();
+            let n = if m > 0 { rows[0].len() } else { 0 };
+            vec![m, n]
+        }
+        Value::Struct(_) | Value::Map(_) | Value::Func(_, _, _) | Value::FuncRef(_) => vec![1, 1],
         Value::Multi(_) => vec![1, 1],
     }
 }
@@ -1828,9 +2307,65 @@ fn flip_dim(x: &MxArray, dim: usize) -> MxArray {
     out
 }
 
+/// `mat2str(X)` / `mat2str(X, precision)`: a source-reconstructible text form
+/// of a numeric/logical value. Default precision relies on Rust's `{}` float
+/// formatting, which already prints the shortest string that round-trips to
+/// the same f64 — exactly the "full round-trip precision" default mat2str
+/// documents. An explicit `precision` instead rounds to that many
+/// significant digits (not decimal places).
+fn mat2str_value(v: &Value, prec: Option<usize>) -> String {
+    let a = match v { Value::Array(a) => a, other => return format_value(other) };
+    let is_logical = a.is_logical_like();
+    let fmt_elem = |c: num_complex::Complex64| -> String {
+        if is_logical {
+            return if c.re != 0.0 { "true".into() } else { "false".into() };
+        }
+        match prec {
+            Some(p) => format_sig(c.re, p),
+            None => format!("{}", c.re),
+        }
+    };
+    if a.is_scalar() {
+        return fmt_elem(a.get_complex(&[]));
+    }
+    let m = a.shape[0];
+    let nn = a.shape.get(1).copied().unwrap_or(1);
+    let mut rows = Vec::with_capacity(m);
+    for i in 0..m {
+        let mut cols = Vec::with_capacity(nn);
+        for j in 0..nn { cols.push(fmt_elem(a.get_complex(&[i, j]))); }
+        rows.push(cols.join(" "));
+    }
+    format!("[{}]", rows.join(";"))
+}
+
+/// Round `v` to `sig` significant digits and print it in plain (non-scientific)
+/// decimal form, trimming trailing zeros.
+fn format_sig(v: f64, sig: usize) -> String {
+    if v == 0.0 || !v.is_finite() { return format!("{}", v); }
+    let sig = sig.max(1) as i32;
+    let magnitude = v.abs().log10().floor() as i32;
+    let decimals = (sig - 1 - magnitude).max(0) as usize;
+    let scale = 10f64.powi(sig - 1 - magnitude);
+    let rounded = (v * scale).round() / scale;
+    let s = format!("{:.*}", decimals, rounded);
+    if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
+}
+
 pub fn format_value(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
+        Value::Str(rows) => {
+            if rows.len() == 1 && rows.first().map(|r| r.len()).unwrap_or(0) == 1 {
+                rows[0][0].clone()
+            } else {
+                let inner: Vec<String> = rows.iter()
+                    .map(|r| r.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(" "))
+                    .collect();
+                format!("[{}]", inner.join(";"))
+            }
+        }
+        Value::Map(entries) => format!("Map object with {} entries", entries.len()),
         Value::Array(a) => format_array(a),
         Value::Cell(rows) => {
             if rows.is_empty() { return "{}".into(); }
@@ -1865,17 +2400,36 @@ pub fn format_value(v: &Value) -> String {
     }
 }
 
+/// Render one number, or one real/imaginary part, with the engine's canonical
+/// spelling of the non-finite values: `Inf`, `-Inf`, `NaN`. Rust's `{:8.4}`
+/// would emit lowercase `inf`/`nan`, which is not what MATBOX prints, and it
+/// silently falls through to a numeric format for non-finite input.
+fn fmt_part(v: f64) -> String {
+    if v.is_nan() { return "NaN".to_string(); }
+    if v.is_infinite() { return if v < 0.0 { "-Inf".to_string() } else { "Inf".to_string() }; }
+    format!("{:8.4}", v)
+}
+
 fn fmt_val(c: num_complex::Complex64) -> String {
     let re = c.re;
     let im = c.im;
-    if im.abs() < 1e-10 {
-        format!("{:8.4}", re)
-    } else if re.abs() < 1e-10 {
-        format!("{:8.4}i", im)
-    } else if im < 0.0 {
-        format!("{:8.4} - {:7.4}i", re, -im)
+    // A part counts as absent only when it is a finite near-zero; an infinite
+    // or NaN imaginary part must still be printed, so the zero tests below
+    // deliberately exclude non-finite values.
+    let im_absent = im.abs() < 1e-10 && im.is_finite();
+    let re_absent = re.abs() < 1e-10 && re.is_finite();
+    if im_absent {
+        fmt_part(re)
+    } else if re_absent {
+        format!("{}i", fmt_part(im))
+    } else if im.is_finite() && im < 0.0 {
+        format!("{} - {}i", fmt_part(re), fmt_part(-im))
+    } else if im.is_finite() {
+        format!("{} + {}i", fmt_part(re), fmt_part(im))
     } else {
-        format!("{:8.4} + {:7.4}i", re, im)
+        // Non-finite imaginary part: no signed `+`/`-` to render, so emit the
+        // imaginary value on its own rather than producing `Inf + Infi`.
+        format!("{}i", fmt_part(im))
     }
 }
 
@@ -1903,4 +2457,266 @@ fn format_array(a: &MxArray) -> String {
         s.push('\n');
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::eval::Engine;
+    use std::collections::HashMap;
+
+    /// Evaluate a snippet and return the value it produces.
+    fn eval1(src: &str) -> Value {
+        let mut e = Engine::new();
+        e.eval(src).unwrap().unwrap_or_else(|| panic!("no value produced by: {src}"))
+    }
+
+    /// Evaluate a snippet that yields text.
+    fn text(src: &str) -> String {
+        match eval1(src) {
+            Value::String(s) => s,
+            other => panic!("expected text from {src}, got {other:?}"),
+        }
+    }
+
+    /// Type name reported by `class` for the value of an expression.
+    fn class_of(src: &str) -> String {
+        text(&format!("class({src})"))
+    }
+
+    /// Call a builtin asking for `n` outputs, and hand back the values.
+    fn call_n(name: &str, args: Vec<Value>, n: usize) -> Vec<Value> {
+        let mut e = Engine::new();
+        e.nargout = n;
+        match call(name, &args, &mut e) {
+            Ok(Value::Multi(v)) => v,
+            Ok(v) => vec![v],
+            Err(e) => panic!("{name} failed: {e}"),
+        }
+    }
+
+    /// All elements of a numeric value, in column-major order.
+    fn nums(v: &Value) -> Vec<f64> {
+        v.as_array().to_double_vec()
+    }
+
+    fn arr(v: f64) -> Value {
+        Value::Array(MxArray::scalar_double(v))
+    }
+
+    fn row(v: &[f64]) -> Value {
+        Value::Array(MxArray::from_double_colmajor(v.to_vec(), &[1, v.len()]))
+    }
+
+    // --- Inf / NaN spelling (BUG-8) ---
+
+    #[test]
+    fn inf_and_nan_are_spelled_with_capitals() {
+        assert_eq!(fmt_val(Complex64::new(f64::INFINITY, 0.0)), "Inf");
+        assert_eq!(fmt_val(Complex64::new(f64::NEG_INFINITY, 0.0)), "-Inf");
+        assert_eq!(fmt_val(Complex64::new(f64::NAN, 0.0)), "NaN");
+    }
+
+    #[test]
+    fn non_finite_values_survive_inside_an_array() {
+        let a = MxArray::from_double_colmajor(vec![1.0, f64::INFINITY], &[1, 2]);
+        assert!(format_value(&Value::Array(a)).contains("Inf"));
+    }
+
+    #[test]
+    fn finite_output_is_unchanged() {
+        assert_eq!(fmt_val(Complex64::new(1.0, 0.0)), "  1.0000");
+        assert_eq!(fmt_val(Complex64::new(2.0, 1.0)), "  2.0000 +   1.0000i");
+    }
+
+    // --- fprintf / sprintf (BUG-3) ---
+
+    #[test]
+    fn sprintf_expands_backslash_escapes() {
+        assert_eq!(text(r"sprintf('a\nb')"), "a\nb");
+        assert_eq!(text(r"sprintf('x\ty')"), "x\ty");
+    }
+
+    #[test]
+    fn sprintf_honours_precision_and_percent() {
+        assert_eq!(text("sprintf('%.2f', 3.14159)"), "3.14");
+        assert_eq!(text("sprintf('100%%')"), "100%");
+    }
+
+    #[test]
+    fn sprintf_defaults_to_six_decimals() {
+        assert_eq!(text("sprintf('%f', 1.5)"), "1.500000");
+    }
+
+    #[test]
+    fn sprintf_rejects_a_non_format_first_argument() {
+        let mut e = Engine::new();
+        assert!(call("sprintf", &[arr(1.0)], &mut e).is_err());
+    }
+
+    // --- class (BUG-4) ---
+
+    #[test]
+    fn class_names_each_value_type() {
+        assert_eq!(class_name(&arr(5.0)), "double");
+        assert_eq!(class_name(&Value::String("hi".into())), "char");
+        assert_eq!(class_name(&Value::Str(vec![vec!["hi".into()]])), "string");
+        assert_eq!(class_name(&Value::Cell(vec![vec![]])), "cell");
+        assert_eq!(class_name(&Value::Map(vec![])), "map");
+        assert_eq!(class_name(&Value::Struct(HashMap::new())), "struct");
+        assert_eq!(class_name(&Value::FuncRef("f".into())), "function handle");
+    }
+
+    #[test]
+    fn class_distinguishes_logical_from_double() {
+        assert_eq!(class_name(&Value::Array(MxArray::scalar_logical(true))), "logical");
+        assert_eq!(class_of("true"), "logical");
+        assert_eq!(class_of("5"), "double");
+    }
+
+    // --- multi-output (BUG-7) ---
+
+    #[test]
+    fn max_reports_the_position_of_the_extremum() {
+        let out = call_n("max", vec![row(&[3.0, 1.0, 9.0, 2.0])], 2);
+        assert_eq!(out.len(), 2);
+        assert_eq!(nums(&out[0])[0], 9.0);
+        assert_eq!(nums(&out[1])[0], 3.0);
+    }
+
+    #[test]
+    fn min_reports_the_position_of_the_extremum() {
+        let out = call_n("min", vec![row(&[3.0, 1.0, 9.0, 2.0])], 2);
+        assert_eq!(nums(&out[0])[0], 1.0);
+        assert_eq!(nums(&out[1])[0], 2.0);
+    }
+
+    #[test]
+    fn ties_report_the_first_position() {
+        let out = call_n("max", vec![row(&[5.0, 5.0, 5.0])], 2);
+        assert_eq!(nums(&out[1])[0], 1.0);
+    }
+
+    #[test]
+    fn single_output_max_is_unchanged() {
+        let out = call_n("max", vec![row(&[3.0, 1.0, 9.0, 2.0])], 1);
+        assert_eq!(out.len(), 1);
+        assert_eq!(nums(&out[0])[0], 9.0);
+    }
+
+    #[test]
+    fn sort_permutation_reconstructs_the_input() {
+        let input = [3.0, 1.0, 9.0, 2.0];
+        let out = call_n("sort", vec![row(&input)], 2);
+        let sorted = nums(&out[0]);
+        let perm = nums(&out[1]).iter().map(|&p| p as usize).collect::<Vec<usize>>();
+        assert_eq!(sorted, vec![1.0, 2.0, 3.0, 9.0]);
+        // sorted(i) is input(perm(i)), so the permutation has to be inverted
+        // before it can rebuild the original arrangement.
+        assert_eq!(perm, vec![2, 4, 1, 3]);
+        let mut inv = vec![0usize; perm.len()];
+        for (i, &p) in perm.iter().enumerate() { inv[p - 1] = i + 1; }
+        let restored: Vec<f64> = inv.iter().map(|&p| sorted[p - 1]).collect();
+        assert_eq!(restored, input.to_vec());
+    }
+
+    #[test]
+    fn sort_single_output_is_unchanged() {
+        let out = call_n("sort", vec![row(&[3.0, 1.0, 2.0])], 1);
+        assert_eq!(out.len(), 1);
+        assert_eq!(nums(&out[0]), vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn find_gives_row_and_column_indices() {
+        // Column-major data for [1 0 1; 0 1 0].
+        let a = MxArray::from_double_colmajor(vec![1.0, 0.0, 0.0, 1.0, 1.0, 0.0], &[2, 3]);
+        let out = call_n("find", vec![Value::Array(a)], 2);
+        assert_eq!(nums(&out[0]), vec![1.0, 2.0, 1.0]);
+        assert_eq!(nums(&out[1]), vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn find_single_output_is_unchanged() {
+        let out = call_n("find", vec![row(&[1.0, 0.0, 1.0])], 1);
+        assert_eq!(out.len(), 1);
+        assert_eq!(nums(&out[0]), vec![1.0, 3.0]);
+    }
+
+    #[test]
+    fn an_empty_dimension_argument_selects_the_default_axis() {
+        // max(A, [], 2) reduces along the second dimension instead of failing
+        // on the empty array, which has no scalar to read. Column-major data
+        // for [1 7; 2 3].
+        let a = MxArray::from_double_colmajor(vec![1.0, 2.0, 7.0, 3.0], &[2, 2]);
+        let empty = Value::Array(MxArray::new_double(&[0, 0]));
+        // An explicit axis is honoured...
+        let out = call_n("max", vec![Value::Array(a.clone()), empty.clone(), arr(2.0)], 1);
+        assert_eq!(nums(&out[0]), vec![7.0, 3.0]);
+        // ...and the empty array means "use the default axis", which for this
+        // matrix is the first non-singleton one, dim 1.
+        let out = call_n("max", vec![Value::Array(a), empty], 1);
+        assert_eq!(nums(&out[0]), vec![2.0, 7.0]);
+    }
+
+    #[test]
+    fn dim_or_default_falls_back_for_an_empty_array() {
+        let a = MxArray::from_double_colmajor(vec![1.0, 2.0, 3.0], &[1, 3]);
+        // [1 3] has no non-singleton first axis, so dim 2 is the default.
+        assert_eq!(dim_from_args(&a, &[], 1), 2);
+        assert_eq!(dim_from_args(&a, &[Value::Array(MxArray::new_double(&[0, 0]))], 1), 2);
+        assert_eq!(dim_from_args(&a, &[arr(0.0), arr(1.0)], 1), 1);
+    }
+
+    // --- integer conversion and idivide (BUG-5) ---
+
+    #[test]
+    fn idivide_truncates_toward_zero() {
+        let mut e = Engine::new();
+        for (a, b, want) in [(7.0, 2.0, 3.0), (-7.0, 2.0, -3.0), (6.0, 3.0, 2.0)] {
+            let v = call("idivide", &[arr(a), arr(b)], &mut e).unwrap();
+            assert_eq!(v.as_array().to_scalar(), want, "idivide({a},{b})");
+        }
+    }
+
+    #[test]
+    fn idivide_broadcasts_a_scalar_operand() {
+        let mut e = Engine::new();
+        let v = call("idivide", &[row(&[6.0, 8.0]), arr(2.0)], &mut e).unwrap();
+        assert_eq!(v.as_array().to_double_vec(), vec![3.0, 4.0]);
+        let v = call("idivide", &[arr(6.0), row(&[2.0, 3.0])], &mut e).unwrap();
+        assert_eq!(v.as_array().to_double_vec(), vec![3.0, 2.0]);
+    }
+
+    #[test]
+    fn idivide_rejects_a_zero_divisor() {
+        let mut e = Engine::new();
+        assert!(call("idivide", &[arr(1.0), arr(0.0)], &mut e).is_err());
+        assert!(call("idivide", &[row(&[1.0, 2.0]), row(&[1.0, 0.0])], &mut e).is_err());
+    }
+
+    #[test]
+    fn idivide_rejects_mismatched_lengths() {
+        let mut e = Engine::new();
+        assert!(call("idivide", &[row(&[1.0, 2.0, 3.0]), row(&[1.0, 2.0])], &mut e).is_err());
+    }
+
+    #[test]
+    fn int_constructors_saturate_instead_of_wrapping() {
+        assert_eq!(int_range("int8"), (-128, 127));
+        assert_eq!(int_range("uint8"), (0, 255));
+        let mut e = Engine::new();
+        assert_eq!(call("int8", &[arr(300.0)], &mut e).unwrap().as_array().to_scalar(), 127.0);
+        assert_eq!(call("int8", &[arr(-300.0)], &mut e).unwrap().as_array().to_scalar(), -128.0);
+    }
+
+    // --- logical type is preserved by concatenation ---
+
+    #[test]
+    fn concatenating_logicals_stays_logical() {
+        assert_eq!(class_of("[true false]"), "logical");
+        assert_eq!(class_of("[true; false]"), "logical");
+        // mixing with a number widens back to numeric
+        assert_eq!(class_of("[true 1]"), "double");
+    }
 }

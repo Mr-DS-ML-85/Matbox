@@ -13,8 +13,15 @@ use std::collections::HashMap;
 pub enum Value {
     Array(MxArray),
     String(String),
+    /// MATBOX's double-quoted string type: a row-major grid of text elements
+    /// (mirroring `Cell`'s [rows][cols] shape convention), distinct from the
+    /// single-quoted char array (`String`). A scalar string is `[[s]]`.
+    Str(Vec<Vec<String>>),
     Cell(Vec<Vec<Value>>),
     Struct(HashMap<String, Value>),
+    /// `containers.Map`: an ordered list of key/value entries. Kept as a
+    /// `Vec` (not `HashMap`) since keys are compared by content, not hashed.
+    Map(Vec<(Value, Value)>),
     Multi(Vec<Value>),
     Func(Vec<String>, Box<Expr>, HashMap<String, Value>),
     FuncRef(String),
@@ -54,12 +61,17 @@ impl Value {
 #[derive(Debug)]
 pub enum EngineError {
     Msg(String),
+    /// A structured error raised via `error(id, fmt, ...)` / `MException`,
+    /// carrying the `component:mnemonic` identifier alongside the formatted
+    /// message so `catch` can bind an object with `.identifier`/`.message`.
+    Exception { identifier: String, message: String },
 }
 
 impl std::fmt::Display for EngineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EngineError::Msg(m) => write!(f, "{}", m),
+            EngineError::Exception { message, .. } => write!(f, "{}", message),
         }
     }
 }
@@ -103,7 +115,8 @@ pub(crate) type UserFuncBody = (Vec<String>, Vec<String>, Vec<Stmt>);
 /// Names that are seeded into every workspace as reserved constants
 /// (`pi`, `eps`, `i`, ...). They are not user variables, so `who` skips them.
 pub(crate) fn is_reserved_constant(name: &str) -> bool {
-    matches!(name, "pi" | "eps" | "inf" | "nan" | "i" | "j" | "true" | "false")
+    matches!(name, "pi" | "eps" | "inf" | "nan" | "Inf" | "NaN" | "NA" | "e"
+        | "i" | "j" | "true" | "false")
 }
 
 pub(crate) enum Flow {
@@ -141,18 +154,29 @@ impl Engine {
         self.workspace.insert("eps".into(), Value::Array(MxArray::scalar_double(f64::EPSILON)));
         self.workspace.insert("inf".into(), Value::Array(MxArray::scalar_double(f64::INFINITY)));
         self.workspace.insert("nan".into(), Value::Array(MxArray::scalar_double(f64::NAN)));
+        // Capitalised spellings are the canonical display forms and are
+        // accepted as names in their own right, alongside `e` and `NA`.
+        self.workspace.insert("Inf".into(), Value::Array(MxArray::scalar_double(f64::INFINITY)));
+        self.workspace.insert("NaN".into(), Value::Array(MxArray::scalar_double(f64::NAN)));
+        self.workspace.insert("e".into(), Value::Array(MxArray::scalar_double(std::f64::consts::E)));
+        self.workspace.insert("NA".into(), Value::Array(MxArray::scalar_double(f64::NAN)));
         let i = Complex64::new(0.0, 1.0);
         self.workspace.insert("i".into(), Value::Array(MxArray::scalar_complex(i)));
         self.workspace.insert("j".into(), Value::Array(MxArray::scalar_complex(i)));
-        self.workspace.insert("true".into(), Value::Array(MxArray::scalar_double(1.0)));
-        self.workspace.insert("false".into(), Value::Array(MxArray::scalar_double(0.0)));
+        self.workspace.insert("true".into(), Value::Array(MxArray::scalar_logical(true)));
+        self.workspace.insert("false".into(), Value::Array(MxArray::scalar_logical(false)));
     }
 
     pub(crate) fn eval_func_handle(&mut self, func: Value, argvals: Vec<Value>) -> Result<Value, EngineError> {
-        if let Value::Func(params, body, captured) = func {
-            self.eval_anon_func(params, *body, captured, argvals)
-        } else {
-            Err(EngineError::Msg("expected function handle".into()))
+        match func {
+            Value::Func(params, body, captured) => self.eval_anon_func(params, *body, captured, argvals),
+            // A bare `@name` handle (e.g. `@isempty`, `@numel`) names a builtin
+            // or user function rather than an anonymous function body — dispatch
+            // it the same way a direct call would. Without this arm, cellfun/
+            // arrayfun given a plain function-name handle fails with "expected
+            // function handle" even though the handle is valid.
+            Value::FuncRef(name) => self.dispatch_call(&name, argvals),
+            _ => Err(EngineError::Msg("expected function handle".into())),
         }
     }
 
@@ -266,7 +290,20 @@ impl Engine {
                     Ok((flow, v)) => Ok((flow, v)),
                     Err(e) => {
                         if let Some(var) = catch_var {
-                            self.workspace.insert(var.clone(), Value::String(format!("{}", e)));
+                            // Bind an MException-like struct: `.identifier` is empty
+                            // unless the error was raised with a `component:mnemonic`
+                            // id (see `error()`), `.message` is the formatted text.
+                            let (identifier, message) = match &e {
+                                EngineError::Msg(m) => (String::new(), m.clone()),
+                                EngineError::Exception { identifier, message } =>
+                                    (identifier.clone(), message.clone()),
+                            };
+                            let mut fields = HashMap::new();
+                            fields.insert("message".into(), Value::String(message));
+                            fields.insert("identifier".into(), Value::String(identifier));
+                            fields.insert("stack".into(), Value::Struct(HashMap::new()));
+                            fields.insert("cause".into(), Value::Cell(Vec::new()));
+                            self.workspace.insert(var.clone(), Value::Struct(fields));
                         }
                         self.exec_block(catch_body)
                     }
@@ -345,8 +382,10 @@ impl Engine {
                 a.iter_complex().iter().all(|c| c.norm() != 0.0 && !c.re.is_nan())
             }
             Value::String(s) => !s.is_empty(),
+            Value::Str(rows) => !rows.is_empty() && !rows[0].is_empty(),
             Value::Cell(c) => !c.is_empty(),
             Value::Struct(m) => !m.is_empty(),
+            Value::Map(entries) => !entries.is_empty(),
             Value::Multi(vals) => vals.iter().any(|v| self.is_true(v)),
             Value::Func(_, _, _) | Value::FuncRef(_) => true,
         }
@@ -379,9 +418,27 @@ impl Engine {
                 Ok(())
             }
             LValue::Index { name, indices } => {
-                let arr = self.workspace.get(name).cloned()
+                let existing = self.workspace.get(name).cloned()
                     .ok_or_else(|| EngineError::Msg(format!("undefined variable '{}'", name)))?;
-                let new_arr = self.index_assign(&arr.as_array().clone(), indices, &value)?;
+                if let Value::Map(mut entries) = existing {
+                    // `m(key) = v`: containers.Map uses function-call-style
+                    // indexing for both lookup and assignment, unlike the
+                    // ()/{} split used by arrays/cells.
+                    if indices.len() != 1 {
+                        return Err(EngineError::Msg(
+                            "containers.Map assignment requires a single key index".into()));
+                    }
+                    let key = self.eval_expr(&indices[0])?;
+                    let v = match value { Value::Multi(mut vals) => vals.remove(0), other => other };
+                    if let Some(slot) = entries.iter_mut().find(|(k, _)| map_key_eq(k, &key)) {
+                        slot.1 = v;
+                    } else {
+                        entries.push((key, v));
+                    }
+                    self.workspace.insert(name.clone(), Value::Map(entries));
+                    return Ok(());
+                }
+                let new_arr = self.index_assign(&existing.as_array().clone(), indices, &value)?;
                 self.workspace.insert(name.clone(), Value::Array(new_arr));
                 Ok(())
             }
@@ -441,11 +498,8 @@ impl Engine {
             }
             LValue::DynamicDotAccess { name, field_expr } => {
                 let fv = self.eval_expr(field_expr)?;
-                let field = match &fv {
-                    Value::String(s) => s.clone(),
-                    _ => return Err(EngineError::Msg(
-                        "dynamic field name must evaluate to a string".into())),
-                };
+                let field = text_arg(&fv).ok_or_else(|| EngineError::Msg(
+                    "dynamic field name must evaluate to a string".into()))?;
                 let mut s = match self.workspace.get(name) {
                     Some(Value::Struct(m)) => m.clone(),
                     _ => HashMap::new(),
@@ -484,6 +538,7 @@ impl Engine {
             Expr::Num(f) => Ok(Value::Array(MxArray::scalar_double(*f))),
             Expr::Imag(f) => Ok(Value::Array(MxArray::scalar_complex(Complex64::new(0.0, *f)))),
             Expr::Str(s) => Ok(Value::String(s.clone())),
+            Expr::DStr(s) => Ok(Value::Str(vec![vec![s.clone()]])),
             Expr::Ident(name) => {
                 if let Some(v) = self.workspace.get(name).cloned() { return Ok(v); }
                 // try loading as a script file
@@ -542,6 +597,18 @@ impl Engine {
             Expr::ColonRange { start, step, end } => self.colon_range(start, step, end),
             Expr::Call { name, args } => self.eval_call(name, args),
             Expr::Index { base, indices } => {
+                // `containers.Map(...)` parses as an Index over a DotAccess
+                // (since the base isn't a bare identifier) rather than a Call;
+                // recognize that shape here and build the Map value directly.
+                if let Expr::DotAccess { base: dbase, field } = base.as_ref() {
+                    if field == "Map" {
+                        if let Expr::Ident(ns) = dbase.as_ref() {
+                            if ns == "containers" {
+                                return self.construct_containers_map(indices);
+                            }
+                        }
+                    }
+                }
                 let b = self.eval_expr(base)?;
                 // if base is a function handle, call it
                 if let Value::Func(f_params, f_body, f_captured) = b {
@@ -582,6 +649,11 @@ impl Engine {
                         map.get(field.as_str()).cloned().ok_or_else(||
                             EngineError::Msg(format!("struct has no field '{}'", field)))
                     }
+                    Value::Map(entries) if field == "Count" => {
+                        Ok(Value::Array(MxArray::scalar_double(entries.len() as f64)))
+                    }
+                    Value::Map(_) => Err(EngineError::Msg(format!(
+                        "unrecognized property '{}' for containers.Map", field))),
                     Value::Cell(_) => Err(EngineError::Msg(
                         "dot indexing not supported for cell arrays".into())),
                     _ => {
@@ -593,11 +665,8 @@ impl Engine {
             Expr::DynamicDotAccess { base, field_expr } => {
                 let b = self.eval_expr(base)?;
                 let fv = self.eval_expr(field_expr)?;
-                let field = match &fv {
-                    Value::String(s) => s.clone(),
-                    _ => return Err(EngineError::Msg(
-                        "dynamic field name must evaluate to a string".into())),
-                };
+                let field = text_arg(&fv).ok_or_else(|| EngineError::Msg(
+                    "dynamic field name must evaluate to a string".into()))?;
                 match b {
                     Value::Struct(map) => {
                         map.get(&field).cloned().ok_or_else(||
@@ -621,6 +690,18 @@ impl Engine {
         }
         let l = self.eval_expr(left)?;
         let r = self.eval_expr(right)?;
+        // The string type (double-quoted) overrides `+` to mean text append
+        // (rather than char-array splicing) and `==`/`~=` to mean text-content
+        // comparison. Only triggers when a `Value::Str` operand is actually
+        // present, so char arithmetic (e.g. 'A' + 1) is untouched.
+        if matches!(l, Value::Str(_)) || matches!(r, Value::Str(_)) {
+            match op {
+                Add => return string_plus(&l, &r),
+                Eq => return string_cmp(&l, &r, true),
+                Ne => return string_cmp(&l, &r, false),
+                _ => {}
+            }
+        }
         // Char arrays participate in arithmetic/relational operators as their
         // character codes (e.g. 'A' + 1 == 66, 'ab' == 'ab' is [1 1]).
         let la = as_operand(&l)?;
@@ -720,6 +801,97 @@ fn as_logical(a: &MxArray) -> MxArray {
     out
 }
 
+/// Represent a value as a row-major grid of text elements, for the string
+/// type's `+`/`==` operators. Numeric scalars and char cells stringify
+/// implicitly, matching how `+` never rejects a non-string operand outright.
+pub(crate) fn to_string_grid(v: &Value) -> Result<Vec<Vec<String>>, EngineError> {
+    match v {
+        Value::Str(g) => Ok(g.clone()),
+        Value::String(s) => Ok(vec![vec![s.clone()]]),
+        Value::Array(a) if a.is_scalar() => Ok(vec![vec![format!("{}", a.to_scalar())]]),
+        Value::Cell(rows) => Ok(rows.iter().map(|row| row.iter().map(|cell| match cell {
+            Value::String(s) => s.clone(),
+            Value::Str(g) if g.len() == 1 && g[0].len() == 1 => g[0][0].clone(),
+            Value::Array(a) if a.is_scalar() => format!("{}", a.to_scalar()),
+            _ => String::new(),
+        }).collect()).collect()),
+        _ => Err(EngineError::Msg(
+            "operator not defined between a string and this operand type".into())),
+    }
+}
+
+/// Combine two text grids elementwise, broadcasting a 1x1 scalar grid against
+/// the other operand's shape (matching `"x" + ["a" "b"]` style broadcasting).
+fn zip_text(a: &[Vec<String>], b: &[Vec<String>], f: impl Fn(&str, &str) -> String) -> Result<Vec<Vec<String>>, EngineError> {
+    let (am, an) = (a.len(), a.first().map(|r| r.len()).unwrap_or(0));
+    let (bm, bn) = (b.len(), b.first().map(|r| r.len()).unwrap_or(0));
+    let is_scalar = |m: usize, n: usize| m == 1 && n == 1;
+    if (am, an) == (bm, bn) {
+        Ok(a.iter().zip(b).map(|(ar, br)| ar.iter().zip(br).map(|(x, y)| f(x, y)).collect()).collect())
+    } else if is_scalar(am, an) {
+        let sv = &a[0][0];
+        Ok(b.iter().map(|row| row.iter().map(|y| f(sv, y)).collect()).collect())
+    } else if is_scalar(bm, bn) {
+        let sv = &b[0][0];
+        Ok(a.iter().map(|row| row.iter().map(|x| f(x, sv)).collect()).collect())
+    } else {
+        Err(EngineError::Msg("string array dimensions must match for this operator".into()))
+    }
+}
+
+fn string_plus(l: &Value, r: &Value) -> Result<Value, EngineError> {
+    let lg = to_string_grid(l)?;
+    let rg = to_string_grid(r)?;
+    Ok(Value::Str(zip_text(&lg, &rg, |a, b| format!("{}{}", a, b))?))
+}
+
+fn string_cmp(l: &Value, r: &Value, want_eq: bool) -> Result<Value, EngineError> {
+    let lg = to_string_grid(l)?;
+    let rg = to_string_grid(r)?;
+    let g = zip_text(&lg, &rg, |a, b| if (a == b) == want_eq { "1".into() } else { "0".into() })?;
+    let m = g.len();
+    let n = g.first().map(|r| r.len()).unwrap_or(0);
+    let mut out = MxArray::new_logical(&[m, n]);
+    if let MxData::Logical(d) = &mut out.data {
+        for j in 0..n { for i in 0..m { d[i + j * m] = g[i][j] == "1"; } }
+    }
+    Ok(Value::Array(out))
+}
+
+/// Text equality helper for `containers.Map` keys: a char array and a scalar
+/// string with the same characters are the same key. Falls back to
+/// `values_equal` for numeric keys.
+pub(crate) fn map_key_eq(a: &Value, b: &Value) -> bool {
+    match (map_key_text(a), map_key_text(b)) {
+        (Some(sa), Some(sb)) => sa == sb,
+        _ => values_equal(a, b),
+    }
+}
+fn map_key_text(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Str(rows) if rows.len() == 1 && rows[0].len() == 1 => Some(rows[0][0].clone()),
+        _ => None,
+    }
+}
+
+pub(crate) fn flatten_row_major(rows: &[Vec<Value>]) -> Vec<Value> {
+    rows.iter().flat_map(|r| r.iter().cloned()).collect()
+}
+
+/// Extract plain text from either a char array or a scalar string. MATLAB
+/// itself accepts both interchangeably wherever a "string argument" is
+/// documented (`strcmp`, `struct` field names, dynamic field access, ...);
+/// this is the shared extraction point so those call sites don't have to
+/// special-case the two representations.
+pub(crate) fn text_arg(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Str(g) if g.len() == 1 && g[0].len() == 1 => Some(g[0][0].clone()),
+        _ => None,
+    }
+}
+
 impl Engine {
     fn build_cell(&mut self, rows: &[Vec<Expr>]) -> Result<Value, EngineError> {
         if rows.is_empty() {
@@ -742,20 +914,79 @@ impl Engine {
             // []
             return Ok(Value::Array(MxArray::new_double(&[0, 0])));
         }
-        let mut row_arrays = Vec::new();
+        // Evaluate every element first so a double-quoted string anywhere in
+        // the literal can be detected: `[...]` stacks strings into a string
+        // array (each element stays separate) rather than splicing them into
+        // one char row the way `['ab','cd']` does.
+        let mut row_vals: Vec<Vec<Value>> = Vec::with_capacity(rows.len());
+        let mut any_str = false;
         for row in rows {
+            let mut r = Vec::with_capacity(row.len());
+            for e in row {
+                let v = self.eval_expr(e)?;
+                if matches!(v, Value::Str(_)) { any_str = true; }
+                r.push(v);
+            }
+            row_vals.push(r);
+        }
+        if any_str {
+            return self.build_string_matrix(&row_vals);
+        }
+        let mut row_arrays = Vec::new();
+        for row in &row_vals {
             if row.is_empty() {
                 row_arrays.push(MxArray::new_double(&[0, 0]));
                 continue;
             }
             let mut elems = Vec::new();
-            for e in row {
-                let v = self.eval_expr(e)?;
+            for v in row {
                 elems.push(v.as_array().clone());
             }
             row_arrays.push(concat(&elems, 1)?);
         }
         Ok(Value::Array(concat(&row_arrays, 0)?))
+    }
+
+    fn build_string_matrix(&mut self, rows: &[Vec<Value>]) -> Result<Value, EngineError> {
+        let mut out: Vec<Vec<String>> = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut r = Vec::with_capacity(row.len());
+            for v in row {
+                let g = to_string_grid(v)?;
+                if g.len() != 1 || g[0].len() != 1 {
+                    return Err(EngineError::Msg(
+                        "only scalar strings can be stacked in a string array literal".into()));
+                }
+                r.push(g[0][0].clone());
+            }
+            out.push(r);
+        }
+        Ok(Value::Str(out))
+    }
+
+    /// `containers.Map()` / `containers.Map(keys, values)`. `KeyType`/`ValueType`
+    /// name-value options are accepted (typing is inferred dynamically in
+    /// MATBOX rather than pinned up front) and simply yield an empty map.
+    fn construct_containers_map(&mut self, indices: &[Expr]) -> Result<Value, EngineError> {
+        if indices.is_empty() {
+            return Ok(Value::Map(Vec::new()));
+        }
+        let k = self.eval_expr(&indices[0])?;
+        if let Value::String(s) = &k {
+            if s.eq_ignore_ascii_case("KeyType") || s.eq_ignore_ascii_case("ValueType") {
+                return Ok(Value::Map(Vec::new()));
+            }
+        }
+        let v_expr = indices.get(1).ok_or_else(|| EngineError::Msg(
+            "containers.Map: expected keys and values".into()))?;
+        let v = self.eval_expr(v_expr)?;
+        let keys = match &k { Value::Cell(rows) => flatten_row_major(rows), _ => vec![k] };
+        let vals = match &v { Value::Cell(rows) => flatten_row_major(rows), _ => vec![v] };
+        if keys.len() != vals.len() {
+            return Err(EngineError::Msg(
+                "containers.Map: number of keys and values must match".into()));
+        }
+        Ok(Value::Map(keys.into_iter().zip(vals).collect()))
     }
 
     fn colon_range(&mut self, start: &Expr, step: &Option<Box<Expr>>, end: &Expr) -> Result<Value, EngineError> {
@@ -806,7 +1037,7 @@ impl Engine {
             Expr::Unary { expr: e, .. } | Expr::Transpose { expr: e, .. } => {
                 Self::find_free_vars(e, params, free);
             }
-            Expr::Num(_) | Expr::Imag(_) | Expr::Str(_) | Expr::Colon | Expr::End => {}
+            Expr::Num(_) | Expr::Imag(_) | Expr::Str(_) | Expr::DStr(_) | Expr::Colon | Expr::End => {}
             Expr::Matrix(rows) => {
                 for row in rows { for e in row { Self::find_free_vars(e, params, free); } }
             }
@@ -861,6 +1092,27 @@ impl Engine {
         // The requested output count applies to THIS call only; argument
         // sub-expressions are evaluated in a single-output context.
         let nargout = std::mem::replace(&mut self.nargout, 1);
+        // `remove(m, key)` behaves like a handle-class mutator in MATLAB:
+        // containers.Map is a reference type, so removal is visible on the
+        // caller's variable without `m = remove(m, key)`. MATBOX values are
+        // otherwise copy semantics, so special-case this one mutating call.
+        if name == "remove" && args.len() == 2 {
+            if let Expr::Ident(var) = &args[0] {
+                if let Some(Value::Map(entries)) = self.workspace.get(var).cloned() {
+                    let key = self.eval_expr(&args[1])?;
+                    let before = entries.len();
+                    let mut updated = entries;
+                    updated.retain(|(k, _)| !map_key_eq(k, &key));
+                    if updated.len() == before {
+                        return Err(EngineError::Msg(
+                            "remove: the specified key is not present in the map".into()));
+                    }
+                    self.workspace.insert(var.clone(), Value::Map(updated.clone()));
+                    self.nargout = nargout;
+                    return Ok(Value::Map(updated));
+                }
+            }
+        }
         // If name is a workspace function handle, call it
         if let Some(Value::Func(f_params, f_body, f_captured)) = self.workspace.get(name).cloned() {
             let argvals: Vec<Value> = args.iter().map(|a| self.eval_expr(a)).collect::<Result<_, _>>()?;
@@ -873,6 +1125,18 @@ impl Engine {
         }
         // If name is a workspace array variable and has index arguments, treat as indexing.
         if !args.is_empty() && self.workspace.contains_key(name) {
+            if let Some(Value::Map(entries)) = self.workspace.get(name) {
+                // `m(key)`: containers.Map uses call-style indexing for reads.
+                if args.len() != 1 {
+                    return Err(EngineError::Msg(
+                        "containers.Map indexing requires a single key".into()));
+                }
+                let entries = entries.clone();
+                let key = self.eval_expr(&args[0])?;
+                return entries.iter().find(|(k, _)| map_key_eq(k, &key)).map(|(_, v)| v.clone())
+                    .ok_or_else(|| EngineError::Msg(
+                        "the specified key is not present in the map".into()));
+            }
             let arr = self.workspace.get(name).unwrap().as_array().clone();
             return Ok(Value::Array(self.index_select(&arr, args)?));
         }
@@ -1130,17 +1394,76 @@ impl Engine {
 
     fn index_assign(&mut self, arr: &MxArray, indices: &[Expr], value: &Value) -> Result<MxArray, EngineError> {
         if indices.len() == 1 {
-            if let Expr::Num(k) = &indices[0] {
-                let idx = k.round() as i64 - 1;
-                if idx < 0 { return Err(EngineError::Msg("index must be positive".into())); }
-                return self.assign_linear_grow(arr, idx as usize, value);
+            if matches!(indices[0], Expr::Colon) {
+                // `v(:) = []` empties the array outright; there are no
+                // surviving elements to refill, so it cannot fall through
+                // to the element-wise fill below.
+                if value.as_array().numel() == 0 {
+                    return Ok(MxArray::from_complex_colmajor(Vec::new(), &[0, 0]));
+                }
+                // `v(:) = x` never grows — it fills the existing elements.
+                let v = value.as_array();
+                let mut out = arr.clone();
+                for l in 0..out.numel() {
+                    out.set_by_linear(l, v.iter_complex()[l.min(v.numel().saturating_sub(1))]);
+                }
+                return Ok(out);
             }
-            let lin = self.eval_linear_indices(arr, &indices[0])?;
-            let v = value.as_array();
-            let mut out = arr.clone();
-            for (k, &l) in lin.iter().enumerate() {
-                if l >= out.numel() { return Err(EngineError::Msg("index exceeds matrix dimensions".into())); }
-                out.set_by_linear(l, v.iter_complex()[k.min(v.numel() - 1)]);
+            // `end` in a growing assignment refers to the size BEFORE this
+            // assignment runs (e.g. `v(end+1) = x` always appends one past
+            // the current length), so bind it to the current numel here.
+            let e = replace_end(&indices[0], arr.numel());
+            let iv = self.eval_expr(&e)?;
+            let ia = iv.as_array();
+            let mut positions = Vec::with_capacity(ia.numel());
+            for c in ia.iter_complex() {
+                let k = c.re.round() as i64;
+                if k < 1 { return Err(EngineError::Msg("index must be positive".into())); }
+                positions.push((k - 1) as usize);
+            }
+            let max_pos = positions.iter().cloned().max().unwrap_or(0);
+            // An empty right-hand side means "delete these elements", not
+            // "assign nothing" — `A(2) = []` must remove index 2 and close
+            // the gap. Handled before any element is read, since the value
+            // array is legitimately empty here.
+            if value.as_array().numel() == 0 {
+                return self.delete_linear(arr, &positions);
+            }
+            let val = value.as_array();
+            if positions.is_empty() || max_pos < arr.numel() {
+                let mut out = arr.clone();
+                for (k, &l) in positions.iter().enumerate() {
+                    out.set_by_linear(l, val.iter_complex()[k.min(val.numel().saturating_sub(1))]);
+                }
+                return Ok(out);
+            }
+            return self.grow_and_assign_linear(arr, &positions, val);
+        }
+        if indices.len() == 2 {
+            let m = arr.shape[0];
+            let n = arr.shape.get(1).copied().unwrap_or(1);
+            let row_idx = self.eval_index_list(&indices[0], m)?;
+            let col_idx = self.eval_index_list(&indices[1], n)?;
+            let max_r = row_idx.iter().cloned().max();
+            let max_c = col_idx.iter().cloned().max();
+            let new_m = max_r.map(|r| m.max(r + 1)).unwrap_or(m);
+            let new_n = max_c.map(|c| n.max(c + 1)).unwrap_or(n);
+            let val = value.as_array();
+            let mut out = if new_m > m || new_n > n {
+                // Grow to fit both the existing data (top-left) and the newly
+                // assigned row/col; every other new cell is zero-filled.
+                let mut grown = MxArray::new_complex(&[new_m, new_n]);
+                for i in 0..m { for j in 0..n { grown.set_complex(&[i, j], arr.get_complex(&[i, j])); } }
+                grown
+            } else {
+                arr.clone()
+            };
+            let mut k = 0usize;
+            for &j in &col_idx {
+                for &i in &row_idx {
+                    out.set_complex(&[i, j], val.iter_complex()[k.min(val.numel().saturating_sub(1))]);
+                    k += 1;
+                }
             }
             return Ok(out);
         }
@@ -1155,29 +1478,74 @@ impl Engine {
         Ok(out)
     }
 
-    fn assign_linear_grow(&self, arr: &MxArray, idx: usize, value: &Value) -> Result<MxArray, EngineError> {
-        let v = value.as_array();
-        let vc = v.iter_complex()[0];
-        if idx < arr.numel() {
-            let mut out = arr.clone();
-            out.set_by_linear(idx, vc);
+    /// Resolve a single-dimension index expression (as used by 2-D indexed
+    /// assignment) to 0-based positions, WITHOUT bounds-checking against
+    /// `dim_size` — callers that want growth compare the result against the
+    /// current size themselves; callers that don't grow (reads) use
+    /// `resolve_selectors` instead, which does bounds-check.
+    fn eval_index_list(&mut self, e: &Expr, dim_size: usize) -> Result<Vec<usize>, EngineError> {
+        if matches!(e, Expr::Colon) { return Ok((0..dim_size).collect()); }
+        let e = replace_end(e, dim_size);
+        let v = self.eval_expr(&e)?;
+        let a = v.as_array();
+        if a.is_logical_like() {
+            let mut out = Vec::new();
+            for (k, c) in a.iter_complex().iter().enumerate() {
+                if c.norm() != 0.0 { out.push(k); }
+            }
             return Ok(out);
         }
-        // grow: treat as column vector expansion (MATLAB grows along the linear index)
-        let new_len = idx + 1;
-        let buf = arr.iter_complex();
-        let mut out = vec![Complex64::new(0.0, 0.0); new_len];
-        for (k, c) in buf.iter().enumerate() {
-            if k < new_len { out[k] = *c; }
+        let mut out = Vec::with_capacity(a.numel());
+        for c in a.iter_complex() {
+            let k = c.re.round() as i64;
+            if k < 1 { return Err(EngineError::Msg("index must be positive".into())); }
+            out.push((k - 1) as usize);
         }
-        out[idx] = vc;
-        // result shape: keep 2D by extending the column dimension if original was 2D
-        let shape = if arr.ndims() == 2 && arr.shape[1] == 1 {
-            vec![new_len, 1]
-        } else {
-            vec![new_len, 1]
-        };
-        Ok(MxArray::from_complex_colmajor(out, &shape))
+        Ok(out)
+    }
+
+    /// Grow a vector to fit `positions` (0-based) and write `val` into them,
+    /// zero-filling any newly created gap. Growth only proceeds along the
+    /// axis the array is already a vector in (or as a fresh row if empty) —
+    /// growing a non-vector via a single linear index is ambiguous and errors.
+    fn delete_linear(&self, arr: &MxArray, positions: &[usize]) -> Result<MxArray, EngineError> {
+        let m = arr.shape[0];
+        let n = arr.shape.get(1).copied().unwrap_or(1);
+        // Removing a linear index out of a 2-D matrix has no single defined
+        // resulting shape, so it is rejected rather than guessed at.
+        if arr.numel() != 0 && m != 1 && n != 1 {
+            return Err(EngineError::Msg(
+                "null assignment can only remove elements from a vector".into()));
+        }
+        let mut drop = vec![false; arr.numel()];
+        for &p in positions {
+            if p < arr.numel() { drop[p] = true; }
+        }
+        let mut buf: Vec<Complex64> = Vec::with_capacity(arr.numel());
+        for (l, c) in arr.iter_complex().iter().enumerate() {
+            if !drop[l] { buf.push(*c); }
+        }
+        // Keep the orientation of the vector we shrank: a 1xN stays 1xN even
+        // when every element is deleted (shape 1x0, not 0x0).
+        let as_row = arr.numel() == 0 || m == 1;
+        let len = buf.len();
+        let shape = if as_row { vec![1, len] } else { vec![len, 1] };
+        Ok(MxArray::from_complex_colmajor(buf, &shape))
+    }
+
+    fn grow_and_assign_linear(&self, arr: &MxArray, positions: &[usize], val: &MxArray) -> Result<MxArray, EngineError> {
+        let new_len = positions.iter().cloned().max().unwrap_or(0) + 1;
+        let m = arr.shape[0];
+        let n = arr.shape.get(1).copied().unwrap_or(1);
+        let as_row = arr.numel() == 0 || m == 1;
+        if as_row || n == 1 {
+            let mut buf = vec![Complex64::new(0.0, 0.0); new_len];
+            for (k, c) in arr.iter_complex().iter().enumerate() { buf[k] = *c; }
+            for (k, &p) in positions.iter().enumerate() { buf[p] = val.iter_complex()[k.min(val.numel().saturating_sub(1))]; }
+            let shape = if as_row { vec![1, new_len] } else { vec![new_len, 1] };
+            return Ok(MxArray::from_complex_colmajor(buf, &shape));
+        }
+        Err(EngineError::Msg("unable to grow a non-vector array via linear indexing".into()))
     }
 
     fn mrdivide(&self, a: &MxArray, b: &MxArray) -> Result<MxArray, EngineError> {
@@ -1239,6 +1607,7 @@ pub(crate) fn values_equal(a: &Value, b: &Value) -> bool {
             }
         }
         (Value::String(sa), Value::String(sb)) => sa == sb,
+        (Value::Str(ga), Value::Str(gb)) => ga == gb,
         _ => false,
     }
 }
@@ -1295,6 +1664,13 @@ pub(crate) fn concat(arrays: &[MxArray], dim: usize) -> Result<MxArray, EngineEr
         }
         out_buf[lin] = arrays[ai].iter_complex()[slin];
     }
+    // Concatenating nothing but logical arrays keeps the result logical, so
+    // `[true false]` reports as logical instead of silently becoming numeric.
+    // A logical mixed with any numeric array still gives a numeric result.
+    if arrays.iter().all(|a| a.is_logical_like()) {
+        let flags: Vec<bool> = out_buf.iter().map(|c| c.norm() != 0.0).collect();
+        return Ok(MxArray::from_logical_colmajor(flags, &out_shape));
+    }
     Ok(MxArray::from_complex_colmajor(out_buf, &out_shape))
 }
 
@@ -1320,7 +1696,7 @@ fn selectors_to_linear(arr: &MxArray, selectors: &[Vec<usize>]) -> Vec<usize> {
 fn replace_end(e: &Expr, dim_size: usize) -> Expr {
     match e {
         Expr::End => Expr::Num(dim_size as f64),
-        Expr::Num(_) | Expr::Imag(_) | Expr::Str(_) | Expr::Colon => e.clone(),
+        Expr::Num(_) | Expr::Imag(_) | Expr::Str(_) | Expr::DStr(_) | Expr::Colon => e.clone(),
         Expr::Ident(_) => e.clone(),
         Expr::Binary { op, left, right } => Expr::Binary {
             op: *op,
@@ -2265,9 +2641,13 @@ mod tests {
     fn test_string_display_in_ans() {
         let mut eng = Engine::new();
         let r = eng.eval(r#""hello world""#).unwrap();
+        // A double-quoted literal is a scalar element of the string type —
+        // `Str([[s]])`, not a char row vector.
         match r.unwrap() {
-            Value::String(s) => assert_eq!(s, "hello world"),
-            _ => panic!("expected string"),
+            Value::Str(rows) => {
+                assert_eq!(rows, vec![vec!["hello world".to_string()]]);
+            }
+            other => panic!("expected string, got {:?}", other),
         }
     }
 

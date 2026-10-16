@@ -1,0 +1,17 @@
+% Text in double quotes is a scalar of the string type, kept apart from the
+% single-quoted char row vector. The `+` operator on strings appends text,
+% producing one new string, and converts a non-string operand to its printed
+% form first so the operation never fails on type alone.
+s = "ab" + "cd";
+disp(s);
+disp(strlength(s));
+
+% Concatenating strings inside brackets builds a string ARRAY: each original
+% scalar stays a separate element instead of being spliced into one string.
+arr = ["ab" "cd"];
+disp(arr);
+disp(class(arr));
+
+% A scalar string compares equal to a char vector holding the same characters,
+% because the comparison is on text content.
+disp("hi" == 'hi');

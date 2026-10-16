@@ -1,0 +1,5 @@
+value must be positive
+id:mytool:badinput
+id:inner
+boom
+

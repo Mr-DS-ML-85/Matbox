@@ -1,0 +1,12 @@
+% A bracketed literal of text yields a string array: each quoted piece stays a
+% separate element. It must be accepted, not rejected as a bad element type.
+disp(["ab" "cd"]);
+
+% A single piece is a 1x1 string array.
+one = ["solo"];
+disp(one);
+disp(class(one));
+
+% Bracketing strings together keeps them as elements rather than splicing their
+% characters into one longer string, which is what char vectors do.
+disp(strlength(["ab" "cd"]));

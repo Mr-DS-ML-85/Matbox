@@ -1,0 +1,14 @@
+% idivide performs integer division, truncating the quotient toward zero
+% rather than rounding it.
+disp(idivide(7, 2));
+disp(idivide(-7, 2));
+
+% A scalar operand broadcasts across the other argument's elements.
+disp(idivide([6 8], 2));
+disp(idivide(6, [2 3]));
+
+% The integer constructors convert a value to integer storage. Narrowing
+% saturates at the ends of the target range instead of wrapping around.
+disp(int32(5));
+disp(int8(300));
+disp(int8(-300));

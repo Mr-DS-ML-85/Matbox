@@ -67,7 +67,7 @@ impl Parser {
                 if let Tok::Ident(name) = self.peek() {
                     let name = name.clone();
                     if is_command_builtin(&name)
-                        && matches!(self.toks.get(self.pos + 1), Some(Tok::Ident(_)) | Some(Tok::Str(_)))
+                        && matches!(self.toks.get(self.pos + 1), Some(Tok::Ident(_)) | Some(Tok::Str(_)) | Some(Tok::DStr(_)))
                     {
                         return self.parse_command(name);
                     }
@@ -388,8 +388,14 @@ impl Parser {
     fn parse_unary(&mut self) -> Result<Expr, String> {
         self.skip_nl();
         match self.peek() {
-            Tok::Minus => { self.pos += 1; Ok(Expr::Unary { op: UnOp::Neg, expr: Box::new(self.parse_unary()?) }) }
-            Tok::Plus => { self.pos += 1; Ok(Expr::Unary { op: UnOp::Pos, expr: Box::new(self.parse_unary()?) }) }
+            // A leading sign binds LOOSER than `^` but TIGHTER than `*`: `-2^2`
+            // groups as `-(2^2)`, not `(-2)^2`. So the operand is parsed as a
+            // full expression at the sign's own precedence level instead of
+            // recursing straight into another unary — `parse_expr(111)` absorbs
+            // `^` (120) but stops before `*` (110), and leaves `:` alone so
+            // `-a:b` keeps its existing grouping.
+            Tok::Minus => { self.pos += 1; Ok(Expr::Unary { op: UnOp::Neg, expr: Box::new(self.parse_expr(UNARY_SIGN_BP)?) }) }
+            Tok::Plus => { self.pos += 1; Ok(Expr::Unary { op: UnOp::Pos, expr: Box::new(self.parse_expr(UNARY_SIGN_BP)?) }) }
             Tok::Not => { self.pos += 1; Ok(Expr::Unary { op: UnOp::Not, expr: Box::new(self.parse_unary()?) }) }
             Tok::At => self.parse_anon_func(),
             _ => self.parse_postfix(),
@@ -490,6 +496,7 @@ impl Parser {
             Tok::Num(f) => { self.pos += 1; Ok(Expr::Num(f)) }
             Tok::Imag(f) => { self.pos += 1; Ok(Expr::Imag(f)) }
             Tok::Str(s) => { self.pos += 1; Ok(Expr::Str(s)) }
+            Tok::DStr(s) => { self.pos += 1; Ok(Expr::DStr(s)) }
             Tok::Ident(s) => { self.pos += 1; Ok(Expr::Ident(s)) }
             Tok::Colon => { self.pos += 1; Ok(Expr::Colon) }
             Tok::Kw(k) if k == "end" => { self.pos += 1; Ok(Expr::End) }
@@ -588,10 +595,15 @@ fn is_command_builtin(name: &str) -> bool {
 
 fn is_expr_start(t: &Tok) -> bool {
     matches!(t,
-        Tok::Num(_) | Tok::Imag(_) | Tok::Str(_) | Tok::Ident(_) | Tok::LParen | Tok::LBracket | Tok::LBrace
+        Tok::Num(_) | Tok::Imag(_) | Tok::Str(_) | Tok::DStr(_) | Tok::Ident(_) | Tok::LParen | Tok::LBracket | Tok::LBrace
         | Tok::Minus | Tok::Plus | Tok::Not | Tok::Colon | Tok::At)
         || matches!(t, Tok::Kw(k) if k == "end")
 }
+
+/// Precedence floor for a leading `+`/`-` sign. Sits above `*` (110) and below
+/// `^` (120) so the sign absorbs exponentiation into its operand — making
+/// `-2^2` evaluate as `-(2^2) == -4` rather than `(-2)^2 == 4`.
+const UNARY_SIGN_BP: u8 = 111;
 
 fn binop(t: &Tok) -> Option<(BinOp, u8, bool)> {
     let r = match t {

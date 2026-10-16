@@ -1,0 +1,28 @@
+% A raised error can be caught as a struct exposing its message and, when the
+% caller supplied one, an identifier. The catch variable is only bound inside
+% the catch block.
+try
+    error('id:mytool:badinput', 'value must be positive');
+catch err
+    disp(err.message);
+    disp(err.identifier);
+end
+
+% The same exception object can be re-raised once caught.
+try
+    try
+        error('id:inner', 'boom');
+    catch e
+        disp(e.identifier);
+        rethrow(e);
+    end
+catch outer
+    disp(outer.message);
+end
+
+% A plain message with no identifier still yields an empty identifier.
+try
+    error('something went wrong');
+catch e2
+    disp(e2.identifier);
+end

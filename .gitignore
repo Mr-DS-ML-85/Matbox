@@ -1,12 +1,20 @@
 .aider*
-conformance
 packages
 specs
 target
-conformance/*
 packages/*
 specs/*
 target/*
 Cargo.lock
 .claude
+
+# Tooling scratch: agent state stores and generated config, not project source.
+.claude-flow/
+.swarm/
+CLAUDE.md
+claude-flow.config.json
+data/
+*.db
+*.rvf
+*.rvf.lock
 

@@ -47,6 +47,9 @@ pub enum Expr {
     Num(f64),
     Imag(f64),
     Str(String),
+    /// A double-quoted `"..."` literal — a scalar element of MATBOX's string
+    /// type, distinct from the single-quoted char literal (`Str`).
+    DStr(String),
     Ident(String),
     Binary { op: BinOp, left: Box<Expr>, right: Box<Expr> },
     Unary { op: UnOp, expr: Box<Expr> },

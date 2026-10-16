@@ -1,0 +1,13 @@
+% Assigning past the end of an index grows the array instead of failing, and
+% zero-fills whatever gap that leaves between the old end and the new index.
+v = [1 2];
+v(end+1) = 9;
+disp(v);
+
+v(5) = 50;
+disp(v);
+
+% Growing also works for a column vector, which keeps its orientation.
+c = [1;2];
+c(end+1) = 8;
+disp(c);

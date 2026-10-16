@@ -86,6 +86,13 @@ impl MxArray {
 
     /// Build a column-major double array from a row/col-major source by
     /// supplying elements already in column-major order.
+    pub fn from_logical_colmajor(elems: Vec<bool>, shape: &[usize]) -> Self {
+        let mut shape = shape.to_vec();
+        while shape.len() < 2 { shape.push(1); }
+        let strides = MxArray::col_strides(&shape);
+        MxArray { shape, strides, data: MxData::Logical(elems) }
+    }
+
     pub fn from_double_colmajor(elems: Vec<f64>, shape: &[usize]) -> Self {
         MxArray {
             shape: shape.to_vec(),
@@ -124,6 +131,25 @@ impl MxArray {
             strides: vec![1, 1],
             data: MxData::Logical(vec![v]),
         }
+    }
+
+    pub fn scalar_int64(v: i64) -> Self {
+        MxArray {
+            shape: vec![1, 1],
+            strides: vec![1, 1],
+            data: MxData::Int64(vec![v]),
+        }
+    }
+
+    /// Build an integer array from column-major element data. The engine stores
+    /// every integer width in `MxData::Int64`, so narrowing conversions are the
+    /// caller's responsibility (see the `int*` constructors in matbox-core,
+    /// which saturate to the target range).
+    pub fn from_int64_colmajor(v: Vec<i64>, shape: &[usize]) -> Self {
+        let mut shape = shape.to_vec();
+        while shape.len() < 2 { shape.push(1); }
+        let strides = MxArray::col_strides(&shape);
+        MxArray { shape, strides, data: MxData::Int64(v) }
     }
 
     /// Linear (0-based) index into the backing buffer for a 0-based multi-index.

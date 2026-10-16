@@ -1,0 +1,9 @@
+% class reports the name of a value's type.
+disp(class(5));
+disp(class(1+2i));
+disp(class(true));
+disp(class('hi'));
+disp(class("hi"));
+disp(class({1}));
+disp(class(struct('f', 1)));
+disp(class(@(x) x));

@@ -1,0 +1,8 @@
+cart has 3 items
+ 17.0000
+plain line
+3.14
+to stdout
+100% done
+ans =
+ 10.0000

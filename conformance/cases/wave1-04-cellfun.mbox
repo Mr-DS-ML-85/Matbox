@@ -1,0 +1,9 @@
+% cellfun applies a function to every element of a cell array and collects the
+% results. The cell contents are passed element-wise, so a cell of strings
+% reaches the handle as text rather than as the cell wrapper.
+c = {1, 2, 3};
+disp(cellfun(@(x) x * 2, c));
+
+names = {'ab', 'cd'};
+disp(cellfun(@(s) strlength(s), names));
+disp(cellfun(@(s) numel(s), names));

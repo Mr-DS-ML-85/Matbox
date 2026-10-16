@@ -1,0 +1,33 @@
+% Several builtins take a second output alongside their value.
+[m, i] = max([3 1 9 2]);
+disp(m);
+disp(i);
+
+[lo, j] = min([3 1 9 2]);
+disp(lo);
+disp(j);
+
+% The reported position can be used to index back into the original array.
+A = [5 2 9];
+[v, k] = max(A);
+disp(A(k));
+
+% sort's second output is the permutation that produced the sorted order, so
+% reapplying it to the input restores the original arrangement.
+[s, p] = sort([3 1 9 2]);
+disp(s);
+disp(p);
+disp(A([1 2 3]));
+
+% find's second and third outputs are row and column indices rather than a
+% single linear index.
+[r, c] = find([1 0 1; 0 1 0]);
+disp(r);
+disp(c);
+
+% One output keeps the original behavior of each function.
+disp(max([3 1 9 2]));
+disp(find([1 0 1]));
+
+% The empty array is the documented way to say "every dimension".
+disp(max([1 2; 7 3], [], 2));

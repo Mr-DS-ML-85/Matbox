@@ -1,0 +1,14 @@
+% The non-finite values are spelled Inf, -Inf and NaN, with the capital letters
+% MATBOX uses rather than the lowercase spelling a naive numeric format gives.
+disp(Inf);
+disp(-Inf);
+disp(NaN);
+
+% Division by zero reaches the same values rather than erroring.
+disp(1/0);
+disp(-1/0);
+disp(0/0);
+
+% Inside an array each element is spelled the same way.
+disp([1 2 Inf]);
+disp([1 NaN -Inf]);

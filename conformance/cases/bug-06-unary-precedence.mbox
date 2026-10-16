@@ -1,0 +1,15 @@
+% Exponentiation binds more tightly than a leading sign, so the sign applies to
+% the whole power rather than to the base.
+disp(-2^2);
+disp(2^-3);
+disp(- -2^2);
+
+% A sign still binds more tightly than multiplication, so -2*3 is (-2)*3.
+disp(-2*3);
+disp(-2+3);
+
+% Parentheses remain available to force the other grouping.
+disp((-2)^2);
+
+% Power is right-associative, so the right power is evaluated first.
+disp(2^3^2);

@@ -1,0 +1,20 @@
+% Assigning an empty value to an index deletes that element and closes the gap,
+% so the surviving elements shift down instead of leaving a hole.
+A = [1 2 3 4];
+A(2) = [];
+disp(A);
+
+% Several indices can be deleted at once.
+B = [1 2 3 4 5];
+B([2 4]) = [];
+disp(B);
+
+% Deleting every element empties the vector without an error.
+C = [1 2 3];
+C(:) = [];
+disp(isempty(C));
+
+% Orientation survives the shrink.
+D = [1;2;3];
+D(1) = [];
+disp(D);
