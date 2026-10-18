@@ -521,8 +521,8 @@ pub(crate) fn call(name: &str, args: &[Value], engine: &mut Engine) -> Result<Va
             };
             Ok(Value::Array(unary_elementwise(&s.as_array().clone(), |c| c / cnt)))
         }
-        "min" => minmax(&a(0)?, args, false, engine.nargout),
-        "max" => minmax(&a(0)?, args, true, engine.nargout),
+        "min" => minmax(args, false, engine.nargout),
+        "max" => minmax(args, true, engine.nargout),
         "any" => logical_reduce(&a(0)?, args.get(1), false, |acc, x| acc || x),
         "all" => logical_reduce(&a(0)?, args.get(1), true, |acc, x| acc && x),
         "abs" => elem1!(|c| Complex64::new(c.norm(), 0.0)),
@@ -2585,7 +2585,103 @@ fn dim_from_args(x: &MxArray, args: &[Value], pos: usize) -> usize {
     }
 }
 
-fn minmax(x: &MxArray, args: &[Value], is_max: bool, n_out: usize) -> Result<Value, EngineError> {
+/// Pairwise min/max uses MATLAB's leading-dimension implicit expansion.
+/// Keep this separate from reduction dispatch: the second operand is not an axis.
+fn pairwise_minmax(a: &MxArray, b: &MxArray, is_max: bool) -> Result<MxArray, EngineError> {
+    let ndim = a.ndims().max(b.ndims());
+    let mut shape = Vec::with_capacity(ndim);
+    for k in 0..ndim {
+        let da = a.shape.get(k).copied().unwrap_or(1);
+        let db = b.shape.get(k).copied().unwrap_or(1);
+        shape.push(if da == db { da } else if da == 1 { db } else if db == 1 { da }
+                   else { return Err(EngineError::Msg("min/max: incompatible array sizes".into())); });
+    }
+    let count = shape.iter().try_fold(1usize, |n, &d| n.checked_mul(d))
+        .ok_or_else(|| EngineError::Msg("min/max: expanded array size overflows usize".into()))?;
+    let mut indices = Vec::with_capacity(count);
+    for mut linear in 0..count {
+        let (mut ia, mut ib) = (0, 0);
+        for (k, &size) in shape.iter().enumerate() {
+            let coordinate = linear % size;
+            linear /= size;
+            if a.shape.get(k).copied().unwrap_or(1) != 1 {
+                ia += coordinate * a.strides[k];
+            }
+            if b.shape.get(k).copied().unwrap_or(1) != 1 {
+                ib += coordinate * b.strides[k];
+            }
+        }
+        indices.push((ia, ib));
+    }
+    let data = match (&a.data, &b.data) {
+        // Compare stored integers directly, including values beyond f64's exact range.
+        (MxData::Int64(av), MxData::Int64(bv)) => MxData::Int64(indices.iter().map(|&(i, j)| {
+            if is_max { av[i].max(bv[j]) } else { av[i].min(bv[j]) }
+        }).collect()),
+        (MxData::Logical(av), MxData::Logical(bv)) => MxData::Logical(indices.iter().map(|&(i, j)| {
+            if is_max { av[i] || bv[j] } else { av[i] && bv[j] }
+        }).collect()),
+        (MxData::Double(_) | MxData::Complex(_), MxData::Double(_) | MxData::Complex(_)) => {
+            let av = a.iter_complex();
+            let bv = b.iter_complex();
+            // MATLAB's default compares real arrays by value and complex arrays
+            // by magnitude, then phase. Zero imaginary parts alone remain real.
+            let complex_order = av.iter().chain(bv.iter()).any(|v| v.im != 0.0);
+            let out: Vec<Complex64> = indices.iter().map(|&(i, j)| {
+                let (x, y) = (av[i], bv[j]);
+                if x.re.is_nan() || x.im.is_nan() { return y; }
+                if y.re.is_nan() || y.im.is_nan() { return x; }
+                let order = if complex_order {
+                    x.norm().partial_cmp(&y.norm()).unwrap().then_with(|| {
+                        // angle is in (-pi, pi], including negative signed zero.
+                        let phase = |z: Complex64| {
+                            let p = z.arg();
+                            if p == -std::f64::consts::PI { std::f64::consts::PI } else { p }
+                        };
+                        phase(x).partial_cmp(&phase(y)).unwrap()
+                    })
+                } else { x.re.partial_cmp(&y.re).unwrap() };
+                if (is_max && order.is_lt()) || (!is_max && order.is_gt()) { y } else { x }
+            }).collect();
+            if a.is_complex() || b.is_complex() { MxData::Complex(out) }
+            else { MxData::Double(out.iter().map(|v| v.re).collect()) }
+        }
+        _ => return Err(EngineError::Msg("min/max: mixed integer/logical numeric types are not supported".into())),
+    };
+    Ok(MxArray { strides: MxArray::col_strides(&shape), shape, data })
+}
+
+fn minmax(args: &[Value], is_max: bool, n_out: usize) -> Result<Value, EngineError> {
+    let x = match args.first() {
+        Some(Value::Array(x)) => x,
+        _ => return Err(EngineError::Msg("min/max: expected a numeric array".into())),
+    };
+    if let Some(second) = args.get(1) {
+        let y = match second {
+            Value::Array(y) => y,
+            _ => return Err(EngineError::Msg("min/max: unsupported argument or option".into())),
+        };
+        // [] selects reduction syntax. Other empty shapes remain operands.
+        if y.shape != [0, 0] {
+            if args.len() != 2 {
+                return Err(EngineError::Msg("min/max: pairwise options are not supported".into()));
+            }
+            if n_out > 1 {
+                return Err(EngineError::Msg("min/max: pairwise comparison returns one output".into()));
+            }
+            return Ok(Value::Array(pairwise_minmax(x, y, is_max)?));
+        }
+    }
+    if args.len() > 3 {
+        return Err(EngineError::Msg("min/max: unsupported reduction option".into()));
+    }
+    if let Some(axis) = args.get(2) {
+        match axis {
+            Value::Array(a) if a.is_scalar() && a.get_complex(&[]).im == 0.0 && a.to_scalar().is_finite()
+                && a.to_scalar() >= 1.0 && a.to_scalar().fract() == 0.0 => {},
+            _ => return Err(EngineError::Msg("min/max: expected a positive integer dimension".into())),
+        }
+    }
     let dim = dim_from_args(x, args, 1);
     let init = if is_max { Complex64::new(f64::NEG_INFINITY, 0.0) } else { Complex64::new(f64::INFINITY, 0.0) };
     let f: fn(Complex64, Complex64) -> Complex64 = if is_max {
@@ -3090,6 +3186,151 @@ mod tests {
         let out = call_n("max", vec![row(&[3.0, 1.0, 9.0, 2.0])], 1);
         assert_eq!(out.len(), 1);
         assert_eq!(nums(&out[0])[0], 9.0);
+    }
+
+    #[test]
+    fn pairwise_minmax_compares_both_scalar_operands() {
+        for (name, expected) in [("min", 2.0), ("max", 7.0)] {
+            for pair in [[7.0, 2.0], [2.0, 7.0]] {
+                let out = call_n(name, vec![arr(pair[0]), arr(pair[1])], 1);
+                assert_eq!(nums(&out[0]), vec![expected]);
+            }
+        }
+    }
+
+    #[test]
+    fn pairwise_minmax_expands_scalars_in_both_orders() {
+        for (name, expected) in [("min", vec![1.0, 5.0, 3.0]), ("max", vec![5.0, 7.0, 5.0])] {
+            for args in [vec![row(&[1.0, 7.0, 3.0]), arr(5.0)],
+                         vec![arr(5.0), row(&[1.0, 7.0, 3.0])]] {
+                let out = call_n(name, args, 1);
+                assert_eq!(out[0].as_array().shape, vec![1, 3]);
+                assert_eq!(nums(&out[0]), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn pairwise_minmax_compares_arrays_and_expands_rows_with_columns() {
+        for (name, expected) in [("min", vec![1.0, 3.0, 2.0]), ("max", vec![4.0, 7.0, 9.0])] {
+            assert_eq!(nums(&call_n(name, vec![row(&[1.0, 7.0, 2.0]), row(&[4.0, 3.0, 9.0])], 1)[0]), expected);
+        }
+        let col = Value::Array(MxArray::from_double_colmajor(vec![2.0, 6.0], &[2, 1]));
+        for (name, expected) in [("min", vec![1.0, 1.0, 2.0, 6.0, 2.0, 3.0]),
+                                 ("max", vec![2.0, 6.0, 7.0, 7.0, 3.0, 6.0])] {
+            let out = call_n(name, vec![row(&[1.0, 7.0, 3.0]), col.clone()], 1);
+            assert_eq!(out[0].as_array().shape, vec![2, 3]);
+            assert_eq!(nums(&out[0]), expected);
+        }
+    }
+
+    #[test]
+    fn pairwise_expansion_appends_missing_trailing_dimensions() {
+        let a = Value::Array(MxArray::from_double_colmajor(vec![1.0, 7.0], &[2, 1]));
+        let b = Value::Array(MxArray::from_double_colmajor(vec![3.0, 6.0], &[1, 1, 2]));
+        let out = call_n("min", vec![a, b], 1);
+        assert_eq!(out[0].as_array().shape, vec![2, 1, 2]);
+        assert_eq!(nums(&out[0]), vec![1.0, 3.0, 1.0, 6.0]);
+    }
+
+    #[test]
+    fn pairwise_minmax_handles_empty_operands_without_indexing() {
+        let empty = Value::Array(MxArray::new_double(&[0, 3]));
+        for name in ["min", "max"] {
+            for args in [vec![empty.clone(), arr(2.0)], vec![arr(2.0), empty.clone()]] {
+                let out = call_n(name, args, 1);
+                assert_eq!(out[0].as_array().shape, vec![0, 3]);
+                assert_eq!(out[0].as_array().numel(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn pairwise_minmax_omits_nan_in_either_position() {
+        for name in ["min", "max"] {
+            for pair in [[f64::NAN, 3.0], [3.0, f64::NAN]] {
+                assert_eq!(nums(&call_n(name, vec![arr(pair[0]), arr(pair[1])], 1)[0]), vec![3.0]);
+            }
+            assert!(nums(&call_n(name, vec![arr(f64::NAN), arr(f64::NAN)], 1)[0])[0].is_nan());
+        }
+    }
+
+    #[test]
+    fn pairwise_complex_minmax_uses_magnitude_then_phase() {
+        let z = |re, im| Value::Array(MxArray::scalar_complex(Complex64::new(re, im)));
+        for (name, expected) in [("min", Complex64::new(0.0, -1.0)),
+                                 ("max", Complex64::new(0.0, 1.0))] {
+            for args in [vec![z(0.0, -1.0), z(0.0, 1.0)], vec![z(0.0, 1.0), z(0.0, -1.0)]] {
+                assert_eq!(call_n(name, args, 1)[0].as_array().get_complex(&[]), expected);
+            }
+        }
+        assert_eq!(call_n("min", vec![z(2.0, 2.0), z(-1.0, 0.0)], 1)[0].as_array().get_complex(&[]), Complex64::new(-1.0, 0.0));
+        // A complex storage buffer with all-zero imaginary parts still compares by real value.
+        assert_eq!(call_n("min", vec![z(-2.0, 0.0), z(1.0, 0.0)], 1)[0].as_array().get_complex(&[]), Complex64::new(-2.0, 0.0));
+    }
+
+    #[test]
+    fn pairwise_minmax_preserves_int64_and_logical_storage() {
+        let lo = 9_007_199_254_740_992i64;
+        let hi = lo + 1;
+        for (name, expected) in [("min", lo), ("max", hi)] {
+            let out = call_n(name, vec![Value::Array(MxArray::scalar_int64(hi)), Value::Array(MxArray::scalar_int64(lo))], 1);
+            assert_eq!(out[0].as_array().data, MxData::Int64(vec![expected]));
+        }
+        for (name, expected) in [("min", false), ("max", true)] {
+            let out = call_n(name, vec![Value::Array(MxArray::scalar_logical(true)), Value::Array(MxArray::scalar_logical(false))], 1);
+            assert_eq!(out[0].as_array().data, MxData::Logical(vec![expected]));
+        }
+        assert!(matches!(call_n("min", vec![arr(2.0), arr(3.0)], 1)[0].as_array().data, MxData::Double(_)));
+    }
+
+    #[test]
+    fn pairwise_minmax_rejects_incompatible_shapes_and_unsupported_forms() {
+        for name in ["min", "max"] {
+            let mut e = Engine::new();
+            assert!(call(name, &[row(&[1.0, 2.0]), row(&[1.0, 2.0, 3.0])], &mut e).is_err());
+            e.nargout = 2;
+            assert!(call(name, &[arr(1.0), arr(2.0)], &mut e).is_err());
+            e.nargout = 1;
+            assert!(call(name, &[arr(1.0), arr(2.0), Value::String("includenan".into())], &mut e).is_err());
+            assert!(call(name, &[arr(1.0), Value::String("all".into())], &mut e).is_err());
+            assert!(call(name, &[arr(1.0), Value::Array(MxArray::scalar_int64(2))], &mut e).is_err());
+            assert!(call(name, &[arr(1.0), Value::Array(MxArray::new_double(&[0, 0])), arr(0.0)], &mut e).is_err());
+        }
+    }
+
+    #[test]
+    fn minmax_rejects_a_nonreal_reduction_dimension() {
+        let mut e = Engine::new();
+        for name in ["min", "max"] {
+            let args = [row(&[1.0, 2.0]), Value::Array(MxArray::new_double(&[0, 0])),
+                        Value::Array(MxArray::scalar_complex(Complex64::new(1.0, 1.0)))];
+            assert!(call(name, &args, &mut e).is_err());
+        }
+    }
+
+    #[test]
+    fn pairwise_expansion_rejects_element_count_overflow() {
+        // Zero-stride singleton fixtures let the shape calculation be tested
+        // without allocating an impossibly large backing buffer.
+        let a = MxArray { shape: vec![usize::MAX, 1], strides: vec![0, 0], data: MxData::Double(vec![1.0]) };
+        let b = MxArray { shape: vec![1, 2], strides: vec![0, 0], data: MxData::Double(vec![2.0]) };
+        for is_max in [false, true] {
+            let error = pairwise_minmax(&a, &b, is_max).unwrap_err();
+            assert!(error.to_string().contains("overflows"));
+        }
+    }
+
+    #[test]
+    fn pairwise_dispatch_preserves_reduction_values_axes_and_first_tie_indices() {
+        for name in ["min", "max"] {
+            let out = call_n(name, vec![row(&[5.0, 5.0, 5.0])], 2);
+            assert_eq!(nums(&out[0]), vec![5.0]);
+            assert_eq!(nums(&out[1]), vec![1.0]);
+            let a = Value::Array(MxArray::from_double_colmajor(vec![1.0, 2.0, 7.0, 3.0], &[2, 2]));
+            let out = call_n(name, vec![a, Value::Array(MxArray::new_double(&[0, 0])), arr(2.0)], 1);
+            assert_eq!(nums(&out[0]), if name == "min" { vec![1.0, 2.0] } else { vec![7.0, 3.0] });
+        }
     }
 
     #[test]
