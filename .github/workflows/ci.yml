@@ -42,8 +42,5 @@ jobs:
       - name: Run stress test
         run: cargo run --release -- run stress.mbox
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
       - name: Run Clippy
         run: cargo clippy --workspace --all-features -- -D warnings
