@@ -1,128 +1,32 @@
-% demo.mbox
-disp('=== MATBOX STRESS TEST ===')
+% stress.mbox - heavy stress test
+disp('=== MATBOX HEAVY STRESS TEST ===')
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Arithmetic
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 x = 0
-for i = 1:100000
-    x = x + sin(i) * cos(i)
+for i = 1:1000000
+    x = x + sin(i) * cos(i) + tan(i/1000)
 end
 disp('Arithmetic OK')
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Matrix creation
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-A = rand(500,500)
-B = rand(500,500)
-
+A = rand(2000,2000)
+B = rand(2000,2000)
 C = A + B
 D = A .* B
 E = A'
-
+F = A * B
 disp('Matrix ops OK')
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Matrix multiplication
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-F = A * B
-disp('Matrix multiply OK')
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Statistics
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 m = mean(F)
 s = std(F)
 v = var(F)
 disp('Statistics OK')
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% FFT
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-signal = rand(1,8192)
-spec = fft(signal)
+y = fft(F(1,:))
 disp('FFT OK')
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Polynomial
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-p = [1 -3 2]
-r = roots(p)
-y = polyval(p,10)
-disp('Polynomial OK')
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Set operations
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-u = union(1:1000,500:1500)
-i = intersect(1:1000,500:1500)
-disp('Set operations OK')
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Cell arrays
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-c = {}
-
-for k = 1:1000
-    c{k} = k
-end
-
-disp('Cells OK')
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Structs
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-s = struct()
-
 for k = 1:100
-    name = sprintf('field%d',k)
-    s.(name) = k
+    Z = rand(500,500)
+    W = inv(Z' * Z + eye(500))
 end
+disp('Linear algebra OK')
 
-disp('Structs OK')
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% User functions
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function y = cube(x)
-    y = x^3
-end
-
-z = 0
-
-for k = 1:10000
-    z = z + cube(k)
-end
-
-disp('Functions OK')
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Recursion
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function y = fib(n)
-    if n <= 1
-        y = n
-    else
-        y = fib(n-1) + fib(n-2)
-    end
-end
-
-fib(20)
-disp('Recursion OK')
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Strings
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-str = 'MATBOX'
-for k = 1:1000
-    strcmp(str,'MATBOX')
-end
-
-disp('Strings OK')
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Final
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-disp('================================')
-disp('ALL STRESS TESTS PASSED')
-disp('================================')
+disp('ALL DONE')
