@@ -1,4 +1,4 @@
-```yaml
+
 name: CI
 
 on:
@@ -47,4 +47,3 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --workspace --all-features -- -D warnings
-```
